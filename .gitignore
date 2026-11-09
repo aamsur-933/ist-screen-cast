@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Log, rekaman, dan hasil uji (bisa berisi data jaringan / layar)
+*.log
+*.ts
+*.pcap
+*.pcapng
+*.etl
+captures/
+scratch/
+
+# Credential / konfigurasi lokal (credential grup persistent ada di /var/lib/miracast-cast, bukan di repo)
+*.local
+.env
+
+# Editor
+*.swp
+*~
+.idea/
+.vscode/
