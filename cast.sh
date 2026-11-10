@@ -16,11 +16,12 @@
 #   sudo bash cast.sh --iface wlp2s0     # interface WiFi tertentu (default: dideteksi otomatis)
 #   sudo bash cast.sh --check            # hanya cek kesiapan laptop, tanpa mengubah apa pun
 #   sudo bash cast.sh --capture portal   # paksa tangkapan layar lewat xdg-desktop-portal (default: auto)
+#   pkexec /bin/bash cast.sh --gui       # dipakai GUI: tanpa menu; perintah dibaca dari stdin (lihat gui_select)
 # Hentikan dengan Ctrl+C (semua dibersihkan otomatis).
 set -u
 DEFAULT_NAME="LOBBY.A1"            # pilihan default di menu (Enter)
 PEER="${PEER:-}"; PEER_NAME=""; CONNECT_MODE="auto"; GO_INTENT=14; DISPLAY_MODE=""
-WIFI=""; CHECK_ONLY=0
+WIFI=""; CHECK_ONLY=0; GUI=0
 PY_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,11 +34,33 @@ while [ $# -gt 0 ]; do
     --extend|--virtual) DISPLAY_MODE="extend"; shift ;;
     --iface)     WIFI="${2:-}"; shift 2 ;;
     --check)     CHECK_ONLY=1; shift ;;
+    --gui)       GUI=1; shift ;;
     *)           PY_ARGS+=("$1"); shift ;;
   esac
 done
 DIR="$(cd "$(dirname "$0")" && pwd)"
 U="${SUDO_USER:-}"
+# Dijalankan lewat pkexec (GUI): pengguna desktop dari PKEXEC_UID
+[ -z "$U" ] && [ -n "${PKEXEC_UID:-}" ] && U=$(id -nu "$PKEXEC_UID" 2>/dev/null)
+# --capture ikut diteruskan ke pengecekan dan ke gcast.py
+CAP_ARGS=()
+for ((i = 0; i < ${#PY_ARGS[@]}; i++)); do
+  case "${PY_ARGS[$i]}" in
+    --capture) CAP_ARGS+=(--capture "${PY_ARGS[$((i + 1))]:-auto}") ;;
+    --capture=*) CAP_ARGS+=("${PY_ARGS[$i]}") ;;
+  esac
+done
+# Baris status untuk GUI (hanya di --gui): @@<kolom>\t<kolom>...
+ev() { [ "$GUI" = 1 ] || return 0; local IFS=$'\t'; printf '@@%s\n' "$*"; }
+# GUI menutup stdin / mengirim "stop" -> hentikan sesi (GUI berjalan sebagai user, tidak bisa kirim sinyal ke root)
+WATCHPID=""
+start_stop_watcher() {
+  [ "$GUI" = 1 ] || return 0
+  ( while IFS= read -r l; do [ "$l" = stop ] && break; done; kill -TERM $$ 2>/dev/null ) >/dev/null 2>&1 &
+  WATCHPID=$!
+}
+# Kalau GUI tertutup, stdout ikut putus: jangan sampai SIGPIPE membatalkan pembersihan
+[ "$GUI" = 1 ] && trap '' PIPE
 [ "$(id -u)" -eq 0 ] && [ -n "$U" ] || { echo "Jalankan dengan: sudo bash $0"; exit 1; }
 UIDN=$(id -u "$U")
 
@@ -59,7 +82,7 @@ if [ ! -S "/run/wpa_supplicant/$IF" ]; then
   [ -n "$alt" ] && IF="$alt"
 fi
 W() { timeout 5 wpa_cli -i "$IF" "$@" </dev/null; }
-GIF=""; PYPID=""; DHPID=""; TAILPID=""; CLEANING=0
+GIF=""; PYPID=""; DHPID=""; TAILPID=""; CLEANING=0; GC_RULE=""
 DBUS_POLICY=/etc/dbus-1/system.d/zz-p2p-cast-temp.conf
 NM_CONF=/etc/NetworkManager/conf.d/99-p2p-manual.conf
 # Interface grup P2P bernama p2p-<wifi>-N, atau p2p-N kalau nama WiFi terlalu panjang (batas 15 karakter),
@@ -87,10 +110,12 @@ cleanup() {
   [ -n "$PYPID" ] && stop_group "$PYPID"
   [ -n "$DHPID" ] && stop_group "$DHPID"
   [ -n "$TAILPID" ] && stop_group "$TAILPID"
+  [ -n "$WATCHPID" ] && kill "$WATCHPID" 2>/dev/null
   W p2p_group_remove '*' >/dev/null 2>&1   # semua grup P2P
   W p2p_cancel >/dev/null 2>&1
   local r
   for r in "${FW_RULES[@]}"; do iptables -D $r 2>/dev/null; done
+  [ -n "$GC_RULE" ] && iptables -D $GC_RULE 2>/dev/null
   if [ -f "$DBUS_POLICY" ]; then
     rm -f "$DBUS_POLICY"
     timeout 5 dbus-send --system --type=method_call --dest=org.freedesktop.DBus / org.freedesktop.DBus.ReloadConfig 2>/dev/null
@@ -170,13 +195,7 @@ preflight() {
     bad "Python GObject / GStreamer introspection tidak ada" \
         "sudo apt install python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0"; fatal=1
   else
-    local vargs=() out rc i; [ "$DISPLAY_MODE" = extend ] && vargs=(--virtual)
-    for ((i = 0; i < ${#PY_ARGS[@]}; i++)); do   # --capture ikut dicek
-      case "${PY_ARGS[$i]}" in
-        --capture) vargs+=(--capture "${PY_ARGS[$((i + 1))]:-auto}") ;;
-        --capture=*) vargs+=("${PY_ARGS[$i]}") ;;
-      esac
-    done
+    local vargs=(${CAP_ARGS[@]+"${CAP_ARGS[@]}"}) out rc; [ "$DISPLAY_MODE" = extend ] && vargs+=(--virtual)
     out=$(sudo -u "$U" env XDG_RUNTIME_DIR="/run/user/$UIDN" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" \
           python3 -I "$DIR/wfd_source.py" --check "${vargs[@]}" </dev/null 2>&1); rc=$?
     printf '%s\n' "$out" | grep -v '^\[OpenH264\]' | grep -vE '^[0-9]{2}:[0-9]{2}:[0-9]{2} Audio dari' || true
@@ -185,6 +204,7 @@ preflight() {
   return $fatal
 }
 
+ev STATE checking
 if [ "$CHECK_ONLY" = 1 ]; then
   preflight && { echo "Laptop siap dipakai untuk cast."; exit 0; } || { echo "Ada yang perlu diperbaiki (lihat XX di atas)."; exit 1; }
 fi
@@ -227,8 +247,11 @@ W wfd_subelem_set 0 000600101c440032 >/dev/null
 
 echo "== 3b/6 Pilih perangkat"
 # Pindai peer Wi-Fi Direct; hanya yang mengiklankan Wi-Fi Display (Miracast sink) ditampilkan.
+# $1 = jumlah putaran (berhenti di putaran pertama yang menemukan perangkat)
+scan_miracast() {
 NAMES=(); MACS=(); LEVELS=(); CAPS=(); LFREQS=()
-for attempt in 1 2; do
+local attempt mac info
+for attempt in $(seq "${1:-2}"); do
   echo "Memindai perangkat Miracast di sekitar (6 detik)..."
   W p2p_find 6 >/dev/null; sleep 6; W p2p_stop_find >/dev/null
   for mac in $(W p2p_peers); do
@@ -242,13 +265,123 @@ for attempt in 1 2; do
   done
   [ ${#MACS[@]} -gt 0 ] && break
 done
-[ ${#MACS[@]} -gt 0 ] || { echo "Tidak ada perangkat Miracast yang terdeteksi. Pastikan projektor di mode Screen Mirroring / TV di Screen Share."; exit 1; }
+}
 
 # group_capab bit 0 = perangkat sedang menjadi Group Owner -> harus JOIN; selain itu NEGOSIASI
 how_for() { local c=$(( ${1:-0} )); (( c & 1 )) && echo join || echo negotiate; }
 
+# ---- Mode GUI: pindai Miracast + Google Cast, kirim daftar ke GUI, tunggu perintah di stdin ----
+#   rescan                                         pindai ulang
+#   cast miracast <mac> <mirror|extend> <mode> [opsi...]   mode: 480p60 | 720p30 | 720p60 | 1080p30
+#   cast gcast <ip> <mirror|extend> <mode> [opsi...]
+#   opsi (Advanced): how=auto|join|negotiate  go=0..15  hw=0|1  audio=auto|aac|lpcm|off  bitrate=<kbit/s>
+#   (--iface dan --capture diberikan saat sesi dimulai)
+#   stop (atau stdin ditutup)                      selesai, bersihkan
+GUI_SEL=""; GC_EXTRA=()
+gui_select() {
+  local A kind id disp mode i gtmp gpid n m ip port opt k v bad how go extra gextra scan=1
+  gerr() { echo "$*"; ev ERROR "$*"; }
+  while :; do
+    if [ "$scan" = 1 ]; then
+    scan=0
+    ev STATE scanning
+    echo "Memindai perangkat Miracast (Wi-Fi Direct) dan Google Cast (WiFi)..."
+    gtmp=$(mktemp)
+    sudo -u "$U" python3 -I "$DIR/gcast.py" --list --tsv </dev/null >"$gtmp" 2>/dev/null &
+    gpid=$!
+    scan_miracast 1
+    wait "$gpid" 2>/dev/null
+    for i in "${!MACS[@]}"; do
+      ev DEV miracast "${MACS[$i]}" "${NAMES[$i]}" "${LEVELS[$i]:-?}" "$(how_for "${CAPS[$i]}")"
+    done
+    GC_IPS=()
+    while IFS=$'\t' read -r n m ip port; do
+      [[ "$ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || continue
+      GC_IPS+=("$ip"); ev DEV gcast "$ip" "$n" "$m" "$port"
+    done < "$gtmp"
+    rm -f "$gtmp"
+    echo "Ditemukan: ${#MACS[@]} Miracast, ${#GC_IPS[@]} Google Cast"
+    fi
+    ev STATE ready
+    IFS=' ' read -r -a A || exit 0
+    case "${A[0]:-}" in
+      rescan) scan=1; continue ;;
+      stop)   exit 0 ;;
+      cast)   kind="${A[1]:-}"; id="${A[2]:-}"; disp="${A[3]:-}"; mode="${A[4]:-}" ;;
+      *)      gerr "Perintah tidak dikenal: ${A[*]}"; continue ;;
+    esac
+    case "$disp" in mirror|extend) DISPLAY_MODE="$disp" ;; *) gerr "Tampilan tidak valid: $disp"; continue ;; esac
+    case "$mode" in 480p60|720p30|720p60|1080p30) ;; *) gerr "Resolusi tidak valid: $mode"; continue ;; esac
+    # Opsi Advanced: dicek semua dulu, baru dipakai kalau valid
+    how="$CONNECT_MODE"; go="$GO_INTENT"; extra=(); gextra=(); bad=""
+    for opt in "${A[@]:5}"; do
+      k="${opt%%=*}"; v="${opt#*=}"
+      case "$k=$v" in
+        how=auto|how=join|how=negotiate) how="$v" ;;
+        go=*)      [[ "$v" =~ ^([0-9]|1[0-5])$ ]] && go="$v" || bad="$opt" ;;
+        hw=1)      extra+=(--hw) ;;
+        hw=0)      ;;
+        audio=off) extra+=(--no-audio) ;;
+        audio=auto|audio=aac|audio=lpcm) extra+=(--audio "$v") ;;
+        bitrate=*) if [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -ge 500 ] && [ "$v" -le 30000 ]; then
+                     extra+=(--bitrate $((v * 1024))); gextra+=(--bitrate "$v")
+                   else bad="$opt"; fi ;;
+        *)         bad="$opt" ;;
+      esac
+    done
+    [ -z "$bad" ] || { gerr "Opsi tidak valid: $bad"; continue; }
+    if [ "$kind" = gcast ]; then
+      GC_EXTRA=(${gextra[@]+"${gextra[@]}"})
+      for ip in "${GC_IPS[@]}"; do [ "$ip" = "$id" ] && gui_gcast "$id" "$mode"; done
+      gerr "Perangkat Google Cast $id tidak ada di hasil pindai"; continue
+    fi
+    if [ "$kind" = miracast ]; then
+      for i in "${!MACS[@]}"; do [ "${MACS[$i],,}" = "${id,,}" ] && GUI_SEL=$i; done
+      if [ -n "$GUI_SEL" ]; then
+        PY_ARGS+=(--mode "$mode" ${extra[@]+"${extra[@]}"})
+        CONNECT_MODE="$how"; GO_INTENT="$go"
+        start_stop_watcher
+        return 0
+      fi
+      gerr "Perangkat Miracast $id tidak ada di hasil pindai"; continue
+    fi
+    gerr "Jenis perangkat tidak valid: $kind"
+  done
+}
+# Google Cast dari sesi GUI: buka port HTTP stream, jalankan gcast.py sebagai user, tunggu sampai berhenti
+gui_gcast() {
+  local ip=$1 size fps vargs=()
+  case "$2" in
+    480p60) size=854x480; fps=60 ;; 720p30) size=1280x720; fps=30 ;;
+    720p60) size=1280x720; fps=60 ;; 1080p30) size=1920x1080; fps=30 ;;
+  esac
+  [ "$DISPLAY_MODE" = extend ] && vargs=(--virtual)
+  GC_RULE="INPUT -p tcp --dport 8099 -j ACCEPT"
+  iptables -C $GC_RULE 2>/dev/null || iptables -I $GC_RULE
+  echo "Port 8099 dibuka sementara untuk stream ke TV."
+  ev STATE connecting "$ip"
+  start_stop_watcher
+  setsid sudo -u "$U" env XDG_RUNTIME_DIR="/run/user/$UIDN" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" \
+    python3 -I -u "$DIR/gcast.py" --device "$ip" --size "$size" --fps "$fps" \
+    ${vargs[@]+"${vargs[@]}"} ${CAP_ARGS[@]+"${CAP_ARGS[@]}"} ${GC_EXTRA[@]+"${GC_EXTRA[@]}"} </dev/null &
+  PYPID=$!
+  while kill -0 "$PYPID" 2>/dev/null; do wait "$PYPID" 2>/dev/null; done
+  echo "Google Cast berhenti."
+  exit 0
+}
+
+if [ "$GUI" = 1 ]; then
+  gui_select
+else
+  scan_miracast 2
+  [ ${#MACS[@]} -gt 0 ] || { echo "Tidak ada perangkat Miracast yang terdeteksi. Pastikan projektor di mode Screen Mirroring / TV di Screen Share."; exit 1; }
+fi
+
 SEL=-1
-if [ -n "$PEER" ]; then
+if [ -n "$GUI_SEL" ]; then
+  SEL=$GUI_SEL
+elif [ -n "$PEER" ]; then
   # --peer / PEER=: cocokkan dengan nama (tanpa beda huruf besar/kecil) atau MAC
   for i in "${!MACS[@]}"; do
     if [ "${MACS[$i],,}" = "${PEER,,}" ] || [ "${NAMES[$i],,}" = "${PEER,,}" ]; then SEL=$i; break; fi
@@ -274,6 +407,7 @@ fi
 PEER="${MACS[$SEL]}"; PEER_NAME="${NAMES[$SEL]}"; PEER_LFREQ="${LFREQS[$SEL]:-}"
 HOW="$CONNECT_MODE"; [ "$HOW" = auto ] && HOW=$(how_for "${CAPS[$SEL]}")
 echo "Perangkat: $PEER_NAME ($PEER), cara tersambung: $HOW"
+ev STATE connecting "$PEER_NAME" "$HOW"
 
 # Mode tampilan: dari --mirror/--extend, atau ditanyakan lewat menu
 if [ -z "$DISPLAY_MODE" ]; then
@@ -422,6 +556,7 @@ else
   echo "go_intent laptop = $GO_INTENT (grup persistent)"
   echo ">>> Kalau di TV/perangkat muncul permintaan koneksi, SETUJUI dengan remote. TV LG biasanya baru tersambung ~70 detik kemudian (maks 150 detik)."
   WAIT_S=150   # TV LG baru memulai GO Negotiation sendiri ~70 detik setelah Provision Discovery
+  ev STATE approve "$WAIT_S"
 fi
 [ "$FAST" = 1 ] || GIF=""
 FAIL=""; RETRY=0; LAST_TRY=$T0
@@ -459,6 +594,7 @@ ROLE=$(journalctl -u wpa_supplicant --since "@$T0" -o cat --no-pager 2>/dev/null
        | grep -oE "P2P-GROUP-STARTED $GIF (GO|client)" | tail -1 | awk '{print $3}')
 [ -n "$ROLE" ] || ROLE=$(timeout 3 wpa_cli -i "$GIF" status 2>/dev/null </dev/null | grep -q '^mode=P2P GO' && echo GO || echo client)
 echo "Terhubung lewat $GIF (laptop = $ROLE)"
+ev STATE linked "$ROLE"
 
 # Simpan credential grup persistent (laptop = GO) supaya jalur cepat tetap bisa dipakai setelah reboot
 if [ "$HOW" = negotiate ] && [ "$ROLE" = GO ]; then
@@ -525,6 +661,7 @@ fi
 
 echo
 echo ">>> Menunggu perangkat menyambung ke laptop. Lihat layar perangkat. Ctrl+C untuk berhenti."
+ev STATE waiting
 # 'wait' bisa diinterupsi Ctrl+C (trap langsung jalan); loop supaya tetap menunggu kalau ada sinyal lain
 while kill -0 "$PYPID" 2>/dev/null; do wait "$PYPID" 2>/dev/null; done
 echo "Server Miracast berhenti."

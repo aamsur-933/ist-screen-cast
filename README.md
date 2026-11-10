@@ -69,6 +69,44 @@ disimpan. Setelah negosiasi baru berhasil, grup lama untuk perangkat yang sama d
 Tekan Ctrl+C untuk berhenti dan membersihkan semuanya. Tekan Ctrl+C sekali lagi
 untuk keluar paksa.
 
+## Aplikasi GUI: IST Screen Cast (`gui/`)
+
+Aplikasi desktop (Tauri v2) untuk orang yang tidak mau memakai terminal. Isinya satu daftar
+perangkat Miracast dan Google Cast, pilihan **Mirror/Extend**, **resolusi**, dan opsi
+**Advanced**:
+
+| Opsi | Sama dengan | Kapan berlaku |
+|---|---|---|
+| Interface WiFi | `--iface` | saat Pindai (terkunci selama sesi) |
+| Tangkapan layar | `--capture` | saat Pindai (terkunci selama sesi) |
+| Cara tersambung | `--join` / `--negotiate` | saat Cast (Miracast) |
+| GO intent | `--go-intent` | saat Cast (Miracast) |
+| Audio | `--audio` / `--no-audio` | saat Cast (Miracast) |
+| Encoder hardware | `--hw` | saat Cast (Miracast) |
+| Bitrate | `--bitrate` (kbit/s) | saat Cast (Miracast dan Google Cast) |
+
+Menjalankan dari repo (butuh Rust, Node, dan `libwebkit2gtk-4.1-dev`):
+
+    cd gui && npm install && npm run dev
+
+Cara kerjanya: GUI berjalan sebagai user biasa. Saat **Pindai**, GUI menjalankan
+`pkexec /bin/bash cast.sh --gui`, jadi password administrator diminta sekali per sesi.
+Di mode `--gui`, `cast.sh`:
+
+1. menjalankan pengecekan yang sama dengan `--check`;
+2. menyiapkan sistem (sama seperti mode terminal);
+3. memindai Miracast dan Google Cast bersamaan;
+4. mengirim daftar perangkat ke GUI dalam baris `@@DEV ...`, lalu menunggu perintah di stdin:
+   `rescan`, `cast <miracast|gcast> <id> <mirror|extend> <480p60|720p30|720p60|1080p30> [opsi]`, atau `stop`.
+
+Semua input dicek ulang di `cast.sh`.
+
+Proses root tidak bisa dihentikan dengan sinyal dari user biasa, jadi tombol Stop mengirim `stop`
+(atau menutup stdin). Kalau jendela GUI ditutup atau GUI crash, stdin ikut putus dan `cast.sh`
+tetap membersihkan semuanya.
+
+Pemakaian lewat terminal (`sudo bash cast.sh ...`) tidak berubah.
+
 ## Google Cast (Android TV / Google TV / Chromecast)
 
 Untuk TV yang **tidak** mendukung Miracast (tidak muncul di menu `cast.sh`), misalnya TV TCL
@@ -177,6 +215,7 @@ Mutter ScreenCast:
 | `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236` lalu `fake_sink.py 17236`) |
 | `p2p-test.sh` | Uji join Wi-Fi Direct saja |
 | `gcast.sh` / `gcast.py` | Google Cast: firewall sementara + kontrol Cast + HTTP stream WebM |
+| `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS) |
 
 ## Perubahan sistem
 

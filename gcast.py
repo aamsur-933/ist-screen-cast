@@ -312,6 +312,7 @@ def main():
     ap = argparse.ArgumentParser(description="Cast desktop ke perangkat Google Cast")
     ap.add_argument("--device", help="nama perangkat (fn) atau IP; tanpa ini muncul menu")
     ap.add_argument("--list", action="store_true", help="hanya tampilkan perangkat")
+    ap.add_argument("--tsv", action="store_true", help="--list dalam format nama<TAB>model<TAB>ip<TAB>port")
     ap.add_argument("--virtual", action="store_true", help="extend (monitor virtual) bukan mirror")
     ap.add_argument("--port", type=int, default=8099, help="port HTTP stream di laptop")
     ap.add_argument("--size", default="1280x720")
@@ -332,7 +333,11 @@ def main():
         return 1
     if args.list:
         for name, model, ip, port in devices:
-            print(f"{name} | {model} | {ip}:{port}")
+            if args.tsv:
+                clean = [str(x).replace("\t", " ").replace("\n", " ") for x in (name, model, ip, port)]
+                print("\t".join(clean))
+            else:
+                print(f"{name} | {model} | {ip}:{port}")
         return 0
     dev = pick_device(devices, args.device)
     if not dev:
