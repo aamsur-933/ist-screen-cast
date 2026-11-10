@@ -71,11 +71,14 @@ jobs:
         run: |
           DEB=$(ls dist/*.deb)
           dpkg-deb --info "$DEB"
-          dpkg-deb --contents "$DEB"
+          # Daftar isi diambil sekali lalu dicek dari teks: 'dpkg-deb | grep -q' memutus pipe lebih
+          # awal dan membuat tar menulis "stdout: write error" (tidak berbahaya, tapi membingungkan).
+          CONTENTS=$(dpkg-deb --contents "$DEB")
+          printf '%s\n' "$CONTENTS"
           for f in usr/bin/ist-screen-cast usr/lib/ist-screen-cast/cast.sh usr/lib/ist-screen-cast/wfd_source.py \
-                   usr/lib/ist-screen-cast/gcast.py usr/lib/ist-screen-cast/dhcp-hook.sh \
+                   usr/lib/ist-screen-cast/gcast.py usr/lib/ist-screen-cast/gcast.sh usr/lib/ist-screen-cast/dhcp-hook.sh \
                    usr/share/polkit-1/actions/app.ist.screencast.policy; do
-            dpkg-deb --contents "$DEB" | grep -qE " (\./)?$f$" || { echo "::error::$f tidak ada di paket"; exit 1; }
+            grep -qE " (\./)?$f$" <<<"$CONTENTS" || { echo "::error::$f tidak ada di paket"; exit 1; }
           done
 
       - name: Lampirkan ke Release
