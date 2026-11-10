@@ -1,6 +1,6 @@
 #!/bin/sh
 # udhcpc hook: hanya pasang IP di interface P2P.
-# Sengaja TIDAK mengubah default route / DNS supaya internet tetap lewat WiFi kantor.
+# Sengaja TIDAK mengubah default route / DNS supaya internet tetap lewat WiFi biasa.
 case "$1" in
   deconfig)
     ip -4 addr flush dev "$interface"

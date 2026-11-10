@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cast layar Ubuntu ke projektor/TV via Miracast (Wi-Fi Direct), tanpa GNOME Network Displays.
-#   sudo bash cast.sh                    # pindai, pilih perangkat dari menu (Enter = LOBBY.A1)
-#   sudo bash cast.sh --peer LOBBY.A1    # langsung ke perangkat ini (nama atau MAC), tanpa menu
+#   sudo bash cast.sh                    # pindai, pilih perangkat dari menu
+#   sudo bash cast.sh --peer "Nama TV"   # langsung ke perangkat ini (nama atau MAC), tanpa menu
 #   sudo bash cast.sh --extend           # langsung extend (monitor virtual), tanpa menu tampilan
 #   sudo bash cast.sh --mirror           # langsung mirror layar utama, tanpa menu tampilan
 #   sudo bash cast.sh --mode 1080p30     # resolusi lain: 480p60 720p30 720p60 1080p30
@@ -19,7 +19,7 @@
 #   pkexec /bin/bash cast.sh --gui       # dipakai GUI: tanpa menu; perintah dibaca dari stdin (lihat gui_select)
 # Hentikan dengan Ctrl+C (semua dibersihkan otomatis).
 set -u
-DEFAULT_NAME="LOBBY.A1"            # pilihan default di menu (Enter)
+DEFAULT_NAME="${DEFAULT_NAME:-}"   # pilihan default di menu (Enter); kosong = perangkat pertama
 PEER="${PEER:-}"; PEER_NAME=""; CONNECT_MODE="auto"; GO_INTENT=14; DISPLAY_MODE=""
 WIFI=""; CHECK_ONLY=0; GUI=0
 PY_ARGS=()
@@ -719,7 +719,7 @@ while :; do
   if [ "$RELINK" -ge "$MAX_RELINK" ]; then
     MSG="Gagal tersambung: $WHY, sudah dicoba $((MAX_RELINK + 1)) kali"
     echo "$MSG"
-    echo "   Kalau sering terjadi: putuskan WiFi kantor sementara (radio WiFi harus bergantian channel), lalu coba lagi."
+    echo "   Kalau sering terjadi: putuskan WiFi laptop dari jaringan sementara (radio WiFi harus bergantian channel), lalu coba lagi."
     ev ERROR "$MSG"
     exit 1
   fi

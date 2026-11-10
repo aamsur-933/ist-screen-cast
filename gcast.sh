@@ -1,11 +1,15 @@
 #!/bin/bash
 # Cast desktop ke perangkat Google Cast (Android TV / Google TV / Chromecast) lewat WiFi biasa.
 #   sudo bash gcast.sh                          # pindai, pilih perangkat dari menu
-#   sudo bash gcast.sh --device "Living Room TV"
+#   sudo bash gcast.sh --device "Nama TV"       # atau IP TV
 #   sudo bash gcast.sh --virtual                # extend (monitor virtual) bukan mirror
 #   sudo bash gcast.sh --list                   # hanya tampilkan perangkat
-#   sudo bash gcast.sh --device "Living Room TV" --status-only   # uji koneksi tanpa membuka app di TV
+#   sudo bash gcast.sh --size 1920x1080 --fps 30 --bitrate 6000   # resolusi, fps, kbit/s
+#   sudo bash gcast.sh --local-audio            # suara tetap di laptop juga (default: hanya di TV)
+#   sudo bash gcast.sh --codec vp8              # format lama WebM (VP8 + Opus); default H.264 + AAC (MP4)
+#   sudo bash gcast.sh --device "Nama TV" --status-only   # uji koneksi tanpa membuka app di TV
 # sudo hanya dipakai untuk membuka port HTTP stream di firewall selama sesi (dibersihkan saat Ctrl+C).
+# Saat selesai, sink audio sementara (suara hanya di TV) juga dipastikan sudah dihapus.
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 U="${SUDO_USER:-}"

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Uji koneksi Wi-Fi Direct (Miracast) ke projektor Epson langsung via wpa_supplicant,
 # melewati NetworkManager, untuk melihat apakah projektor mau membentuk grup.
-# Jalankan dengan: sudo bash p2p-test.sh
+# Jalankan dengan: sudo bash p2p-test.sh <MAC perangkat>   (MAC terlihat di menu cast.sh)
 set -u
-PEER="${1:-52:57:9c:bf:9a:56}"   # LOBBY.A1
+PEER="${1:-}"
+[ -n "$PEER" ] || { echo "Pakai: sudo bash $0 <MAC perangkat, mis. aa:bb:cc:dd:ee:ff>"; exit 1; }
 IF=p2p-dev-wlo1
 W() { wpa_cli -i "$IF" "$@"; }
 

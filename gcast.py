@@ -499,7 +499,7 @@ def main():
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--bitrate", type=int, default=6000, help="video kbit/s")
     ap.add_argument("--codec", choices=sorted(FORMATS), default="h264",
-                    help="h264 = H.264 + AAC dalam MP4 (default, didukung semua TV); vp8 = VP8 + Opus dalam WebM")
+                    help="h264 = H.264 + AAC dalam MP4 (default); vp8 = VP8 + Opus dalam WebM (layar hitam di sebagian TV)")
     ap.add_argument("--local-audio", action="store_true",
                     help="suara tetap keluar di laptop juga (default: hanya di TV selama cast)")
     ap.add_argument("--restore-audio", action="store_true",
