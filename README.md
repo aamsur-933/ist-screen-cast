@@ -1,79 +1,58 @@
-# Miracast dari Ubuntu 22.04 ke projektor/TV (eksperimental)
+# IST Screen Cast
 
-Cast layar Linux (GNOME Wayland; desktop lain lewat xdg-desktop-portal) ke projektor Epson, TV LG webOS, dan perangkat Miracast
-lain lewat Wi-Fi Direct. Script ini dipakai karena GNOME Network Displays di
-Ubuntu 22.04 gagal ke projektor Epson.
+Cast layar laptop Linux ke projektor dan TV, tanpa kabel HDMI. Ada dua jalur:
 
-## Pemakaian
-
-Hentikan GNOME Network Displays dulu. Siapkan perangkat tujuan:
-
-- Projektor Epson: pilih source **Screen Mirroring**.
-- TV LG webOS: cukup nyalakan (input apa saja), lalu setujui pop-up koneksi.
-
-Lalu jalankan:
-
-    sudo bash cast.sh                    # pindai, pilih perangkat dari menu (Enter = LOBBY.A1)
-    sudo bash cast.sh --peer LOBBY.A1    # langsung ke perangkat ini (nama atau MAC), tanpa menu
-    sudo bash cast.sh --extend           # langsung extend (monitor tambahan), tanpa menu tampilan
-    sudo bash cast.sh --mirror           # langsung mirror, tanpa menu tampilan
-    sudo bash cast.sh --mode 1080p30     # 480p60 | 720p30 | 720p60 | 1080p30
-    sudo bash cast.sh --join             # paksa JOIN (default: otomatis)
-    sudo bash cast.sh --negotiate        # paksa NEGOSIASI (default: otomatis)
-    sudo bash cast.sh --hw               # coba encoder hardware, otomatis kembali ke openh264
-    sudo bash cast.sh --iface wlp2s0     # interface WiFi tertentu (default: dideteksi otomatis)
-    sudo bash cast.sh --check            # hanya cek kesiapan laptop, tanpa mengubah apa pun
-    sudo bash cast.sh --capture portal   # paksa tangkapan layar lewat xdg-desktop-portal (default: auto)
-
-Setelah memilih perangkat, script menanyakan tampilan: **1) Mirror** (default, Enter) atau
-**2) Extend** (perangkat menjadi monitor tambahan; atur posisinya di Settings → Displays).
-
-Menu perangkat hanya menampilkan perangkat yang mengiklankan Wi-Fi Display (Miracast).
-Printer Wi-Fi Direct seperti `DIRECT-…-EPSON-L5290` disaring. Setiap entri
-menampilkan cara tersambung yang akan dipakai:
-
-| Cara | Kapan | Contoh |
+| Jalur | Untuk | Jaringan |
 |---|---|---|
-| `join` | Perangkat sudah menjadi Group Owner (`group_capab` bit 0) | Projektor Epson |
-| `negotiate` | Perangkat belum punya grup | TV LG webOS |
+| **Miracast** (Wi-Fi Direct) | projektor dengan *Screen Mirroring*, TV dengan *Screen Share* / Miracast (mis. TV LG webOS) | langsung laptop ↔ perangkat, tidak perlu WiFi yang sama |
+| **Google Cast** | Android TV / Google TV / Chromecast (mis. TV TCL) | laptop dan TV harus di WiFi yang sama |
 
-Pada `negotiate`, laptop mengirim Provision Discovery lalu GO Negotiation dengan
-`go_intent=14`, sehingga **laptop yang menjadi Group Owner** (perangkat yang memaksa 15 tetap
-menjadi GO dan laptop menjadi client; 15 lawan 15 akan gagal dengan status 9). TV memunculkan permintaan
-koneksi; setujui dengan remote (batas waktu 150 detik; TV LG biasanya tersambung ~70 detik setelah percobaan pertama). Laptop lalu memakai IP
-`192.168.49.1` dan menjalankan server DHCP (`busybox udhcpd`) untuk perangkat.
-Opsi `--go-intent 0` meminta perangkat yang menjadi Group Owner.
+Bisa dipakai lewat aplikasi **IST Screen Cast** (GUI) atau lewat terminal. Status: eksperimental;
+lihat [Perangkat yang sudah diuji](#perangkat-yang-sudah-diuji).
 
-Hal yang dibutuhkan TV LG (UQ8050PSB, webOS) agar mau tersambung:
-- TV menjawab `go_intent 0` (ingin jadi client), jadi laptop harus menjadi GO (`go_intent=14`).
-- TV menjawab GO Negotiation dengan `status 1` sampai pengguna menyetujui. Script
-  mengirim ulang negosiasi setiap 10 detik dan mendengarkan di channel TV
-  (`listen_freq` TV, di sini channel 1).
-- DHCP harus mengirim **router** (`option router 192.168.49.1`). Tanpa router, TV mendapat
-  IP tetapi tidak pernah menyambung ke RTSP di laptop, lalu memutus setelah sekitar 17 detik.
-- TV LG baru tidak punya aplikasi "Screen Share": pop-up persetujuan muncul di input apa pun.
-  Kalau TV tertahan di layar "menyambung", tekan Batal dulu.
+## Kebutuhan
 
-**Jalur cepat (perangkat yang sudah dikenal).** Mode `negotiate` membuat grup sebagai
-*persistent* (`p2p_connect … persistent`), lalu menyimpan SSID dan passphrase grup di
-`/var/lib/miracast-cast/<mac>.conf`. Koneksi berikutnya mengirim **P2P Invitation**
-(`p2p_invite persistent=…`) ke grup itu, tanpa Provision Discovery dan tanpa negosiasi
-baru. Kalau undangan ditolak atau tidak dijawab dalam 8 detik, script otomatis kembali
-ke negosiasi biasa. Alasannya: setiap negosiasi baru ke TV LG selalu menunggu sekitar
-60 detik (diukur pada 3 koneksi: TV mengirim negosiasinya sendiri di +69,4 / +69,9 /
-+69,5 detik), padahal TV mengiklankan dukungan persistent group (`group_capab 0x2a`).
-Kalau undangan **ditolak** (misalnya TV di-reset), grup lama dan file credential perangkat itu
-dihapus. Kalau undangan hanya **tidak dijawab** (TV mati atau di luar jangkauan), grup tetap
-disimpan. Setelah negosiasi baru berhasil, grup lama untuk perangkat yang sama dibuang.
+- Linux dengan **NetworkManager** dan **wpa_supplicant** (default di Ubuntu, Debian, Fedora, Mint, Pop!_OS, elementary OS).
+- WiFi yang mendukung **Wi-Fi Direct (P2P)**. `--check` memberi tahu apakah WiFi laptop mendukung.
+- Sesi desktop **Wayland**:
+  - GNOME: langsung jalan, tanpa dialog.
+  - Desktop lain (KDE Plasma, Sway, dll.): lewat xdg-desktop-portal. Lihat [Tangkapan layar](#tangkapan-layar-mutter-atau-xdg-desktop-portal).
+- Paket (nama Debian/Ubuntu):
 
-Tekan Ctrl+C untuk berhenti dan membersihkan semuanya. Tekan Ctrl+C sekali lagi
-untuk keluar paksa.
+      sudo apt install wpasupplicant network-manager iptables busybox iproute2 pulseaudio-utils \
+        python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+        gstreamer1.0-pulseaudio avahi-utils
 
-## Aplikasi GUI: IST Screen Cast (`gui/`)
+`avahi-utils` hanya dibutuhkan untuk Google Cast.
 
-Aplikasi desktop (Tauri v2) untuk orang yang tidak mau memakai terminal. Isinya satu daftar
-perangkat Miracast dan Google Cast, pilihan **Mirror/Extend**, **resolusi**, dan opsi
-**Advanced**:
+**Cek dulu sebelum dipakai pertama kali:**
+
+    sudo bash cast.sh --check
+
+Perintah ini tidak mengubah apa pun. Hasilnya `OK`/`XX` per item, plus perintah `apt install`
+untuk yang kurang. Pengecekan yang sama juga berjalan otomatis setiap kali cast dimulai.
+
+## Cara pakai
+
+Siapkan perangkat tujuan dulu:
+
+- **Projektor:** pilih input/source **Screen Mirroring** (atau Miracast).
+- **TV Miracast:** nyalakan TV. Saat diminta, setujui permintaan koneksi dengan remote.
+- **TV Google Cast:** nyalakan TV, pastikan tersambung ke WiFi yang sama dengan laptop.
+
+Kalau sedang membuka aplikasi cast lain (misalnya GNOME Network Displays), tutup dulu, karena
+aplikasi itu memakai Wi-Fi Direct yang sama.
+
+### Aplikasi IST Screen Cast (GUI)
+
+1. Buka aplikasi, tekan **Pindai**, lalu masukkan password administrator di dialog sistem.
+2. Pilih perangkat. Miracast dan Google Cast tampil dalam satu daftar.
+3. Pilih **Mirror** atau **Extend**, dan resolusi.
+4. Tekan **Cast**. Kalau TV meminta persetujuan, setujui dengan remote.
+5. Tekan **Stop** untuk berhenti. Pengaturan jaringan sementara dikembalikan otomatis.
+
+Opsi **Advanced** sama dengan opsi terminal:
 
 | Opsi | Sama dengan | Kapan berlaku |
 |---|---|---|
@@ -85,160 +64,209 @@ perangkat Miracast dan Google Cast, pilihan **Mirror/Extend**, **resolusi**, dan
 | Encoder hardware | `--hw` | saat Cast (Miracast) |
 | Bitrate | `--bitrate` (kbit/s) | saat Cast (Miracast dan Google Cast) |
 
-Menjalankan dari repo (butuh Rust, Node, dan `libwebkit2gtk-4.1-dev`):
+Untuk menjalankan aplikasi dari kode sumber (butuh Rust, Node.js, dan `libwebkit2gtk-4.1-dev`):
 
     cd gui && npm install && npm run dev
 
-Cara kerjanya: GUI berjalan sebagai user biasa. Saat **Pindai**, GUI menjalankan
-`pkexec /bin/bash cast.sh --gui`, jadi password administrator diminta sekali per sesi.
-Di mode `--gui`, `cast.sh`:
+### Terminal: Miracast
 
-1. menjalankan pengecekan yang sama dengan `--check`;
-2. menyiapkan sistem (sama seperti mode terminal);
-3. memindai Miracast dan Google Cast bersamaan;
-4. mengirim daftar perangkat ke GUI dalam baris `@@DEV ...`, lalu menunggu perintah di stdin:
-   `rescan`, `cast <miracast|gcast> <id> <mirror|extend> <480p60|720p30|720p60|1080p30> [opsi]`, atau `stop`.
+    sudo bash cast.sh                          # pindai, pilih perangkat dan tampilan dari menu
+    sudo bash cast.sh --peer "Nama Perangkat"  # langsung ke perangkat ini (nama atau MAC)
+    sudo bash cast.sh --mirror | --extend      # tampilan, tanpa menu
+    sudo bash cast.sh --mode 1080p30           # 480p60 | 720p30 (default) | 720p60 | 1080p30
+    sudo bash cast.sh --join | --negotiate     # paksa cara tersambung (default: otomatis)
+    sudo bash cast.sh --go-intent 0            # 0..15 (default 14), lihat Detail teknis
+    sudo bash cast.sh --audio lpcm             # auto (default) | aac | lpcm;  --no-audio = tanpa suara
+    sudo bash cast.sh --hw                     # coba encoder hardware, otomatis kembali ke openh264
+    sudo bash cast.sh --iface wlp2s0           # interface WiFi tertentu (default: dideteksi otomatis)
+    sudo bash cast.sh --capture portal         # paksa tangkapan layar lewat xdg-desktop-portal
+    sudo bash cast.sh --check                  # hanya cek kesiapan laptop
 
-Semua input dicek ulang di `cast.sh`.
+Menu perangkat hanya menampilkan perangkat Miracast. Printer Wi-Fi Direct otomatis disaring.
+Tekan Enter untuk memilih perangkat bertanda `*`. Nama default-nya diatur di `DEFAULT_NAME`
+di `cast.sh`.
 
-Proses root tidak bisa dihentikan dengan sinyal dari user biasa, jadi tombol Stop mengirim `stop`
-(atau menutup stdin). Kalau jendela GUI ditutup atau GUI crash, stdin ikut putus dan `cast.sh`
-tetap membersihkan semuanya.
+**Mirror** menampilkan layar laptop apa adanya. **Extend** menjadikan perangkat monitor
+tambahan; atur posisinya di Settings → Displays.
 
-Pemakaian lewat terminal (`sudo bash cast.sh ...`) tidak berubah.
+Tekan Ctrl+C untuk berhenti dan membersihkan semuanya. Tekan Ctrl+C sekali lagi untuk keluar paksa.
 
-## Google Cast (Android TV / Google TV / Chromecast)
-
-Untuk TV yang **tidak** mendukung Miracast (tidak muncul di menu `cast.sh`), misalnya TV TCL
-Android TV. Jalurnya lewat WiFi biasa, jadi laptop dan TV harus berada di jaringan yang sama.
+### Terminal: Google Cast
 
     sudo bash gcast.sh                                   # pindai, pilih perangkat dari menu
     sudo bash gcast.sh --device "Living Room TV"         # langsung ke perangkat (nama atau IP)
     sudo bash gcast.sh --virtual                         # extend (monitor virtual)
     sudo bash gcast.sh --list                            # hanya tampilkan perangkat
-    sudo bash gcast.sh --device "Living Room TV" --status-only   # uji koneksi, tanpa membuka app di TV
+    sudo bash gcast.sh --device "Living Room TV" --status-only   # uji koneksi tanpa membuka app di TV
 
-Cara kerja: laptop membuka koneksi kontrol Cast (TLS port 8009), menjalankan **Default Media
-Receiver** (`CC1AD845`) di TV, lalu meminta TV memutar `http://<laptop>:8099/screen.webm`.
-Stream itu berisi tangkapan layar desktop (VP8 + Opus, WebM). sudo hanya dipakai untuk
-membuka port 8099 di firewall selama sesi. Delay lebih besar dari Miracast karena TV
-mem-buffer stream HTTP. Rencana dan detail protokol ada di `docs/google-cast.md`.
+`sudo` hanya dipakai untuk membuka port 8099 di firewall selama sesi. Delay lebih besar
+daripada Miracast (beberapa detik), karena TV mem-buffer stream. Untuk slide dan dokumen
+tidak masalah; untuk video, lebih baik pakai tombol Cast di situs/aplikasinya.
 
-## Dipakai di laptop lain (tim)
+## Masalah umum
 
-Jalankan dulu `sudo bash cast.sh --check`. Perintah ini tidak mengubah apa pun dan
-menampilkan `OK`/`XX` beserta perintah `apt install` yang dibutuhkan. Pemeriksaan yang
-sama otomatis berjalan setiap kali `cast.sh` dijalankan, sebelum sistem diubah.
-
-Yang diperiksa:
-
-| Cek | Kenapa |
+| Gejala | Coba |
 |---|---|
-| Perintah dasar (wpa_cli, nmcli, iptables, busybox udhcpc/udhcpd, pactl, ...) | dipakai script |
-| Interface WiFi dan `p2p-dev-<wifi>` merespons `ping` | chip/driver dan wpa_supplicant harus mendukung Wi-Fi Direct |
-| `iw list` melaporkan P2P-GO/P2P-client (kalau `iw` terpasang) | dukungan driver |
-| Sesi desktop Wayland | Extend (monitor virtual) butuh Wayland |
-| Mutter ScreenCast API (utama) atau xdg-desktop-portal ScreenCast (cadangan) | tangkapan layar; minimal salah satu harus ada |
-| Elemen GStreamer wajib, encoder openh264, sumber audio | jalur media |
-| Encoder hardware yang tersedia | informasi untuk `--hw` |
+| Perangkat tidak muncul | Projektor harus di input Screen Mirroring dan TV menyala. Dekatkan laptop, lalu Pindai ulang. Untuk Google Cast: laptop dan TV harus di WiFi yang sama. |
+| Menunggu lama di "Setujui koneksi di TV" | Perhatikan pop-up di TV. Sebagian TV baru menyambung sekitar 1 menit setelah disetujui (batas 150 detik). Koneksi berikutnya ke TV yang sama jauh lebih cepat. |
+| TV tertahan di layar "menyambung" | Tekan Batal di TV, lalu Cast lagi. |
+| `--check` menampilkan `XX` | Jalankan perintah `apt install` yang ditampilkan. |
+| Dialog "bagikan layar" muncul | Normal di desktop selain GNOME. Pilih layar, centang "ingat" kalau ada. |
+| Ingin memilih layar lain, tapi dialog tidak muncul lagi | Hapus `~/.local/state/miracast-cast/portal-*.token`. |
+| Setelah selesai, aplikasi cast lain tidak menemukan perangkat | `sudo systemctl restart NetworkManager` (WiFi putus beberapa detik). |
+| Script/aplikasi sempat dimatikan paksa | Lihat [Perubahan sistem](#perubahan-sistem) untuk cara mengembalikan manual. |
 
-Nama interface WiFi tidak lagi tertulis tetap di script. Interface dideteksi otomatis
-(WiFi yang tersambung menurut NetworkManager), atau bisa dipilih dengan `--iface`.
+Saat melapor masalah, sertakan log. Di aplikasi: buka bagian **Log**, lalu tekan **Salin**.
+Di terminal: salin output lengkap.
 
-Encoder video default adalah **openh264** (software): hasilnya sama di semua laptop dan
-selalu Constrained Baseline. `--hw` mencoba `vah264lpenc`, `vah264enc`, `vaapih264enc`,
-lalu `nvh264enc`. Setiap encoder diuji dulu dengan beberapa frame dan harus menghasilkan
-Constrained Baseline; kalau tidak ada yang lolos, script kembali ke openh264. Encoder yang
-dipakai tercatat di log (`Encoder video: ...`).
+## Perangkat yang sudah diuji
 
-Yang belum pernah diuji: laptop selain Ubuntu 22.04 (NetworkManager 1.36), chip WiFi
-non-Intel, encoder hardware (di laptop pengembang tidak ada yang terpasang), dan desktop
-selain GNOME.
+Pengujian dilakukan di laptop Ubuntu 22.04 (GNOME Wayland, NetworkManager 1.36, WiFi Intel AX211).
+
+| Perangkat | Jalur | Hasil |
+|---|---|---|
+| TV LG webOS (UQ8050PSB) | Miracast, negosiasi | **Berhasil**: gambar dan suara, 720p30. Koneksi ulang lewat jalur cepat ±1 detik. |
+| Projektor Epson (Screen Mirroring) | Miracast, join | Tersambung dan stream terkirim, tetapi **layar masih hitam**. Perbaikan format stream belum diuji ulang ke projektor. |
+| TV TCL Android TV | Google Cast | Sudah diimplementasikan, **belum diuji** ke TV. |
+
+Yang belum pernah diuji: distro/versi lain, chip WiFi non-Intel, encoder hardware, dan
+desktop selain GNOME. Hasil dari laptop lain sangat membantu, termasuk output `--check`.
+
+## Detail teknis
+
+### Cara tersambung Miracast
+
+| Cara | Kapan | Contoh |
+|---|---|---|
+| `join` | Perangkat sudah menjadi Group Owner (`group_capab` bit 0) | projektor Epson |
+| `negotiate` | Perangkat belum punya grup | TV LG webOS |
+
+**join**: laptop masuk ke grup Wi-Fi Direct milik perangkat (`p2p_connect … pbc join`), lalu
+meminta IP lewat DHCP dari perangkat. Projektor seperti Epson selalu menjalankan grupnya sendiri
+dan menolak negosiasi grup baru (`status 1`).
+
+**negotiate**: laptop mengirim Provision Discovery, lalu GO Negotiation dengan `go_intent=14`,
+sehingga laptop yang menjadi Group Owner. Perangkat yang memaksa intent 15 tetap menjadi GO;
+15 lawan 15 akan gagal dengan status 9. Laptop lalu memakai IP `192.168.49.1` dan menjalankan
+server DHCP (`busybox udhcpd`) untuk perangkat. `--go-intent 0` meminta perangkat yang menjadi GO.
+
+Yang ditemukan saat pengujian dengan TV LG webOS:
+
+- TV menjawab `go_intent 0` (ingin menjadi client).
+- TV menjawab `status 1` sampai pengguna menyetujui. Script mengirim ulang negosiasi setiap
+  10 detik dan mendengarkan di channel TV (`listen_freq`).
+- DHCP harus mengirim **router** (`option router`). Tanpa itu, TV mendapat IP tetapi tidak
+  pernah menyambung ke RTSP.
+- TV menyambung sekitar 70 detik setelah percobaan pertama, walaupun permintaan sudah disetujui
+  lebih awal.
+
+**Jalur cepat.** Grup hasil negosiasi dibuat *persistent*. SSID dan passphrase-nya disimpan di
+`/var/lib/miracast-cast/<mac>.conf`. Koneksi berikutnya cukup mengirim **P2P Invitation**
+(`p2p_invite persistent=…`): TV LG tersambung kurang dari 1 detik, dibanding sekitar 70 detik.
+Kalau undangan tidak dijawab dalam 8 detik, script kembali ke negosiasi biasa. Kalau undangan
+**ditolak** (misalnya TV di-reset), grup lama dan file credential-nya dihapus. Setelah negosiasi
+baru berhasil, grup lama untuk perangkat yang sama dibuang.
+
+### Kenapa tidak lewat NetworkManager saja
+
+Aplikasi seperti GNOME Network Displays meminta NetworkManager untuk membuat koneksi Wi-Fi Direct.
+Di NetworkManager yang diuji (1.36), cara itu tidak cukup:
+
+- NetworkManager tidak bisa **join** ke grup yang sudah ada (dibutuhkan projektor).
+- NetworkManager menghapus grup P2P yang tidak ia buat sendiri, lewat D-Bus `RemoveInterface`.
+  Selama sesi, panggilan itu diblokir dengan aturan D-Bus sementara.
+- NetworkManager tidak menyediakan P2P Invitation untuk jalur cepat.
+
+Karena itu script berbicara langsung dengan wpa_supplicant, dan untuk itu butuh akses root.
+
+### Stream Miracast
+
+- Video H.264 Constrained Baseline. Audio AAC kalau perangkat mendukung; kalau tidak, LPCM.
+  Contohnya projektor Epson yang hanya menerima LPCM.
+- `mpegtsmux` menandai LPCM sebagai format DVD (`0x8b`/`0xfd`), padahal WFD butuh `0x83`/`0xbd`.
+  Selain itu ia menambahkan descriptor Blu-ray `HDMV`. `TsPatcher` membangun ulang PAT/PMT
+  seperti Android: PMT PID `0x100`, descriptor AVC `0x28` + `0x2a`, descriptor LPCM `0x83`,
+  dan PID WFD standar (video `0x1011`, audio `0x1100`).
+- Sebagian firmware mengirim data sampah di depan balasan RTSP. Parser membuangnya.
+- Encoder default **openh264** (software), supaya hasilnya sama di semua laptop. `--hw` mencoba
+  `vah264lpenc`, `vah264enc`, `vaapih264enc`, lalu `nvh264enc`. Setiap encoder diuji dulu dan
+  harus menghasilkan Constrained Baseline; kalau tidak ada yang lolos, script kembali ke openh264.
 
 ### Tangkapan layar: Mutter atau xdg-desktop-portal
 
 | | Mutter ScreenCast (utama) | xdg-desktop-portal ScreenCast (cadangan) |
 |---|---|---|
-| Desktop | GNOME; kemungkinan juga Gala (elementary OS, turunan Mutter) | KDE Plasma, wlroots (Sway/Hyprland), dll., asal backend portalnya terpasang |
-| Dialog persetujuan | tidak ada | dialog "bagikan layar" muncul dan pengguna memilih layar |
-| Persetujuan diingat | - | ya, kalau portal versi 4+; token di `~/.local/state/miracast-cast/` |
-| Extend (monitor virtual) | ya (API versi 4+, GNOME 42+) | hanya kalau portal desktop itu menawarkannya |
+| Desktop | GNOME; kemungkinan juga Gala (elementary OS) | KDE Plasma, wlroots (Sway/Hyprland), dll., asal backend portalnya terpasang |
+| Dialog persetujuan | tidak ada | dialog "bagikan layar"; pengguna memilih layar |
+| Persetujuan diingat | - | ya, kalau portal versi 4+ (token di `~/.local/state/miracast-cast/`) |
+| Extend (monitor virtual) | ya (GNOME 42+) | hanya kalau portal desktop itu menyediakannya |
 
-Mode `auto` (default) mencoba Mutter dulu, lalu portal kalau Mutter tidak ada. Backend yang
-dipakai tercatat di log (`Tangkapan layar: ...`), dan `--check` menampilkan keduanya. Kalau
-dialog portal tidak lagi muncul padahal ingin memilih layar lain, hapus
-`~/.local/state/miracast-cast/portal-*.token`.
-
-Keduanya butuh sesi **Wayland**. elementary OS 8 memakai X11 secara default, jadi pilih sesi
-"Secure Session" (Wayland) di layar login. Untuk mengecek apakah desktop menyediakan
-Mutter ScreenCast:
+Mode `auto` (default) mencoba Mutter dulu, lalu portal. Backend yang dipakai tercatat di log
+(`Tangkapan layar: ...`). Keduanya butuh sesi **Wayland**. Contohnya elementary OS 8, yang secara
+default memakai X11: pilih "Secure Session" di layar login. Untuk mengecek apakah Mutter
+ScreenCast tersedia:
 
     gdbus introspect --session --dest org.gnome.Mutter.ScreenCast \
       --object-path /org/gnome/Mutter/ScreenCast | grep -i version
 
-## Kenapa perlu script ini
+### Google Cast
 
-- Projektor Epson selalu menjalankan grupnya sendiri sebagai *persistent Group
-  Owner*. Negosiasi grup baru ditolak dengan `status 1`, jadi laptop harus **join**
-  (`p2p_connect … pbc join`). NetworkManager 1.36 tidak bisa join.
-- NetworkManager menghapus grup P2P yang tidak ia buat sendiri lewat D-Bus
-  `RemoveInterface` ("NMSupplicantInterface is disposing"). Selama sesi, panggilan
-  itu diblokir dengan aturan D-Bus sementara.
-- Projektor Epson hanya menerima audio **LPCM**. `mpegtsmux` menandai LPCM sebagai DVD
-  (`0x8b`/`0xfd`), padahal WFD butuh `0x83`/`0xbd`. Selain itu `mpegtsmux` menambahkan
-  descriptor Blu-ray `HDMV` di PMT. `TsPatcher` membangun ulang PAT/PMT seperti
-  `TSPacketizer.cpp` di Android: PMT PID `0x100`, descriptor AVC `0x28` + `0x2a`, dan
-  descriptor LPCM `0x83`. Stream memakai PID WFD standar (video `0x1011`, audio `0x1100`).
-- Balasan RTSP dari firmware Epson kadang diawali data sampah, jadi parser
-  membuangnya.
+Laptop membuka koneksi kontrol Cast (TLS port 8009) dan menjalankan **Default Media Receiver**
+(`CC1AD845`) di TV. Lalu TV diminta memutar `http://<laptop>:8099/screen.webm`, yaitu tangkapan
+layar (VP8 + Opus, WebM) yang di-stream dari laptop. Detail protokol ada di `docs/google-cast.md`.
 
-## Status pengujian
+### Aplikasi GUI
 
-- **TV LG webOS `[LG] webOS TV UQ8050PSB`: berhasil**, gambar dan suara (mode `negotiate`, laptop = GO).
-  Diuji dengan `--audio lpcm`: 720p30, H.264 CBP 3.1, LPCM 48 kHz, PMT gaya Android, sama
-  persis dengan konfigurasi untuk Epson. TV menjawab `wfd_content_protection: HDCP2.1`,
-  tetapi tetap memutar stream tanpa HDCP.
-  Jalur cepat terbukti: P2P Invitation diterima dalam 21 ms dan TV tersambung 0,7 detik
-  setelah undangan (negosiasi biasa: sekitar 70 detik).
-- Projektor Epson `LOBBY.A1`: join, DHCP, RTSP M1–M7, dan keepalive stabil (diuji lebih
-  dari 1,5 menit). **Layar masih hitam.** PMT gaya Android (descriptor `0x28`/`0x2a`/`0x83`,
-  PMT PID `0x100`) belum dicoba ke projektor. Pembanding yang pasti: rekaman `pktmon`
-  dari Windows yang cast ke projektor yang sama.
+GUI (Tauri v2) berjalan sebagai user biasa. Saat **Pindai**, GUI menjalankan
+`pkexec /bin/bash cast.sh --gui`, jadi password administrator diminta sekali per sesi.
 
-## File
+Di mode `--gui`, `cast.sh`:
 
-| File | Fungsi |
-|---|---|
-| `cast.sh` | Orkestrasi: NM, D-Bus, firewall, join/negosiasi, DHCP, lalu menjalankan server |
-| `wfd_source.py` | Miracast source: tangkapan layar (Mutter / portal), RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
-| `dhcp-hook.sh` | Hook udhcpc: hanya memasang IP, tanpa mengubah route/DNS |
-| `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236` lalu `fake_sink.py 17236`) |
-| `p2p-test.sh` | Uji join Wi-Fi Direct saja |
-| `gcast.sh` / `gcast.py` | Google Cast: firewall sementara + kontrol Cast + HTTP stream WebM |
-| `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS) |
+1. menjalankan pengecekan yang sama dengan `--check`;
+2. menyiapkan sistem, sama seperti mode terminal;
+3. memindai Miracast dan Google Cast bersamaan;
+4. mengirim daftar perangkat ke GUI (`@@DEV ...`), lalu menunggu perintah di stdin:
+   `rescan`, `cast <miracast|gcast> <id> <mirror|extend> <mode> [opsi]`, atau `stop`.
+
+Semua input dicek ulang di `cast.sh`. Proses root tidak bisa dihentikan dengan sinyal dari user
+biasa, jadi tombol Stop mengirim `stop` (atau menutup stdin). Kalau GUI tertutup atau crash,
+`cast.sh` tetap membersihkan semuanya.
 
 ## Perubahan sistem
 
 Perubahan yang **menetap**:
 
-- `/var/lib/miracast-cast/`: credential grup persistent untuk jalur cepat. Hapus folder ini
-  untuk mengulang dari negosiasi biasa.
+- `/var/lib/miracast-cast/`: credential grup persistent untuk jalur cepat. Hapus folder ini untuk
+  mengulang dari negosiasi biasa.
 - `~/.local/state/miracast-cast/portal-*.token`: persetujuan dialog portal. File ini hanya ada
   kalau xdg-desktop-portal dipakai.
 
-Perubahan lain bersifat **sementara** dan dihapus saat Ctrl+C:
+Perubahan **sementara**, otomatis dihapus saat berhenti:
 
-- `/etc/NetworkManager/conf.d/99-p2p-manual.conf` (NM mengabaikan interface P2P).
-  Selama file ini ada, GNOME Network Displays tidak bisa dipakai.
-- `/etc/dbus-1/system.d/zz-p2p-cast-temp.conf` (blokir `RemoveInterface`)
-- aturan iptables TCP 7236 dan UDP 67 di `p2p-wlo1-+`
-- `/run/p2p-cast-udhcpd.conf` dan lease file (hanya kalau laptop menjadi Group Owner)
-- grup P2P
+- `/etc/NetworkManager/conf.d/99-p2p-manual.conf`: NetworkManager mengabaikan interface P2P.
+  Selama file ini ada, aplikasi cast lain yang memakai NetworkManager tidak bisa dipakai.
+- `/etc/dbus-1/system.d/zz-p2p-cast-temp.conf`: blokir `RemoveInterface`.
+- Aturan iptables: TCP 7236 dan UDP 67 di interface `p2p-*`, serta TCP 8099 untuk Google Cast.
+- `/run/p2p-cast-udhcpd.conf` dan lease file, hanya kalau laptop menjadi Group Owner.
+- Grup Wi-Fi Direct.
 
-Setelah selesai, `p2p-dev-wlo1` bisa tertahan di status "unavailable". Untuk memakai
-GNOME Network Displays lagi, jalankan `sudo systemctl restart NetworkManager`.
-
-Kalau script sempat dimatikan paksa, kembalikan manual:
+Kalau script atau aplikasi sempat dimatikan paksa (misalnya laptop mati), kembalikan manual:
 
     sudo rm -f /etc/NetworkManager/conf.d/99-p2p-manual.conf && sudo nmcli general reload conf
     sudo rm -f /etc/dbus-1/system.d/zz-p2p-cast-temp.conf && sudo systemctl reload dbus
+    sudo systemctl restart NetworkManager
+
+Aturan iptables hilang sendiri setelah reboot.
+
+## File
+
+| File | Fungsi |
+|---|---|
+| `cast.sh` | Orkestrasi Miracast: pengecekan, NetworkManager, D-Bus, firewall, join/negosiasi, DHCP; juga mode `--gui` |
+| `wfd_source.py` | Miracast source: tangkapan layar (Mutter / portal), RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
+| `gcast.sh` / `gcast.py` | Google Cast: firewall sementara, kontrol Cast, HTTP stream WebM |
+| `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS) |
+| `dhcp-hook.sh` | Hook udhcpc: hanya memasang IP, tanpa mengubah route/DNS |
+| `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236`, lalu `fake_sink.py 17236`) |
+| `p2p-test.sh` | Uji join Wi-Fi Direct saja |
+| `docs/google-cast.md` | Catatan protokol dan rencana Google Cast |
