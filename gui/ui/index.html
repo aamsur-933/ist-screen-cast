@@ -9,56 +9,38 @@
 <body>
   <header class="top">
     <div class="brand">
-      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="2" y="2" width="20" height="20" rx="5" class="logo-bg"/>
-        <rect x="5.5" y="6" width="13" height="9" rx="1" class="logo-line"/>
-        <path d="M10 18.2h4M12 15v3.2" class="logo-line"/>
-        <path d="M7.6 10.4a2.6 2.6 0 0 1 2.6 2.6M7.6 8.6a4.4 4.4 0 0 1 4.4 4.4" class="logo-line thin"/>
-      </svg>
-      <h1>IST Screen Cast</h1>
+      <h1 class="wordmark">IST Screen Cast</h1>
+      <p class="tagline">layar laptop ke TV dan projektor, tanpa kabel</p>
     </div>
-    <span id="pill" class="pill" data-tone="idle">Belum memindai</span>
+    <div class="led-wrap">
+      <span class="leds" aria-hidden="true"><b></b><b></b><b></b><b></b><b></b></span>
+      <span id="pill" class="pill" data-tone="idle">Belum memindai</span>
+    </div>
   </header>
+  <div class="shade" aria-hidden="true"></div>
 
   <main class="grid">
-    <section class="card dev-card" aria-labelledby="h-dev">
-      <div class="card-head">
-        <h2 id="h-dev">Perangkat</h2>
-        <button id="btn-scan" class="btn">Pindai</button>
+    <section class="card win status" aria-labelledby="h-status" aria-live="polite">
+      <h2 id="h-status" class="sr-only">Status</h2>
+      <p id="st-title" class="st-title">Mulai dengan Pindai</p>
+      <p id="st-detail" class="st-detail">Projektor harus di mode Screen Mirroring; TV Google Cast harus di WiFi yang sama dengan laptop.</p>
+      <div id="countdown" class="countdown" hidden><div class="bar"></div></div>
+      <div id="stats" class="stats" hidden></div>
+      <div id="errbox" class="errbox" hidden></div>
+    </section>
+
+    <section class="card win dev-card" aria-labelledby="h-dev">
+      <div class="win-bar">
+        <h2 id="h-dev" class="win-title">Perangkat</h2>
+        <button id="btn-scan" class="btn key key-cyan">Pindai</button>
       </div>
       <div id="devices" class="devices">
         <p class="empty">Tekan <b>Pindai</b> untuk mencari projektor/TV.</p>
       </div>
-    </section>
-
-    <section class="card opt-card" aria-labelledby="h-opt">
-      <div class="card-head"><h2 id="h-opt">Tampilan</h2></div>
-
-      <div class="field">
-        <span class="label">Mode</span>
-        <div class="seg" role="radiogroup" aria-label="Mode tampilan">
-          <label><input type="radio" name="disp" value="mirror" checked><span>Mirror</span></label>
-          <label><input type="radio" name="disp" value="extend"><span>Extend</span></label>
-        </div>
-        <p class="hint" id="disp-hint">Layar laptop ditampilkan sama persis.</p>
-      </div>
-
-      <div class="field">
-        <label class="label" for="mode">Resolusi</label>
-        <select id="mode">
-          <option value="480p60">480p · 60 fps</option>
-          <option value="720p30" selected>720p · 30 fps</option>
-          <option value="720p60">720p · 60 fps</option>
-          <option value="1080p30">1080p · 30 fps</option>
-        </select>
-        <p class="hint">Untuk Miracast ini batas atas; resolusi akhir mengikuti kemampuan perangkat.</p>
-      </div>
-
-      <details class="adv" id="adv">
-        <summary>Advanced</summary>
-
+      <details class="adv adv-scan" id="adv-scan">
+        <summary>Opsi pemindaian</summary>
         <fieldset>
-          <legend>Sesi <span class="tag" id="sess-note">berlaku saat Pindai</span></legend>
+          <legend id="sess-note">Berlaku saat Pindai</legend>
           <div class="field">
             <label class="label" for="iface">Interface WiFi</label>
             <select id="iface"><option value="">Otomatis</option></select>
@@ -72,6 +54,34 @@
             </select>
           </div>
         </fieldset>
+      </details>
+    </section>
+
+    <section class="card win opt-card" id="opt-card" aria-labelledby="h-opt" hidden>
+      <div class="win-bar"><h2 id="h-opt" class="win-title">Tampilan</h2></div>
+
+      <div class="field">
+        <span class="label">Mode</span>
+        <div class="seg" role="radiogroup" aria-label="Mode tampilan">
+          <label><input type="radio" name="disp" value="mirror" checked><span>Mirror</span></label>
+          <label><input type="radio" name="disp" value="extend"><span>Extend</span></label>
+        </div>
+        <p class="hint" id="disp-hint">Layar laptop ditampilkan sama persis.</p>
+      </div>
+
+      <div class="field">
+        <label class="label" for="mode">Resolusi</label>
+        <select id="mode">
+          <option value="480p60">480p, 60 fps</option>
+          <option value="720p30" selected>720p, 30 fps</option>
+          <option value="720p60">720p, 60 fps</option>
+          <option value="1080p30">1080p, 30 fps</option>
+        </select>
+        <p class="hint">Untuk Miracast ini batas atas; resolusi akhir mengikuti kemampuan perangkat.</p>
+      </div>
+
+      <details class="adv" id="adv">
+        <summary>Advanced</summary>
 
         <fieldset id="fs-mira">
           <legend>Miracast</legend>
@@ -103,22 +113,17 @@
           <legend>Kualitas</legend>
           <div class="field">
             <label class="label" for="bitrate">Bitrate video <span class="muted">(kbit/s, kosong = default)</span></label>
-            <input id="bitrate" type="number" min="500" max="30000" step="100" placeholder="Miracast 4096 · Google Cast 6000">
+            <input id="bitrate" type="number" min="500" max="30000" step="100" placeholder="Miracast 4096, Google Cast 6000">
           </div>
         </fieldset>
-        <button id="btn-reset" class="btn ghost small" type="button">Kembalikan default</button>
+        <button id="btn-reset" class="btn key key-small" type="button">Kembalikan default</button>
       </details>
     </section>
 
-    <section class="card status" aria-labelledby="h-status" aria-live="polite">
-      <div class="card-head"><h2 id="h-status">Status</h2></div>
-      <p id="st-title" class="st-title">Siap</p>
-      <p id="st-detail" class="st-detail">Pilih perangkat setelah memindai.</p>
-      <div id="countdown" class="countdown" hidden><div class="bar"></div></div>
-      <div id="stats" class="stats" hidden></div>
-      <div id="errbox" class="errbox" hidden></div>
+
+    <section class="card win log-card" id="log-card" aria-label="Log" hidden>
       <details class="log">
-        <summary>Log <button id="btn-copy" class="btn ghost small" type="button">Salin</button></summary>
+        <summary>Log <button id="btn-copy" class="btn key key-small" type="button">Salin</button></summary>
         <pre id="log"></pre>
       </details>
     </section>
@@ -126,8 +131,8 @@
 
   <footer class="actions">
     <div id="sel-label" class="sel-label">Belum ada perangkat dipilih</div>
-    <button id="btn-cast" class="btn primary" disabled>Cast</button>
-    <button id="btn-stop" class="btn danger" hidden>Stop</button>
+    <button id="btn-cast" class="btn key key-go" disabled>Cast</button>
+    <button id="btn-stop" class="btn key key-stop" hidden>Stop</button>
   </footer>
 
   <div id="toast" class="toast" role="status" hidden></div>

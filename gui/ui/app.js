@@ -18,6 +18,7 @@ const S = {
   streaming: false,
   quitting: false,
   approveTimer: null,
+  canExtend: true,      // dari @@CAPS: tangkapan layar bisa membuat monitor virtual (Extend)
   log: [],
 };
 const DEFAULTS = { disp: "mirror", mode: "720p30", iface: "", capture: "auto", how: "auto", go: "14",
@@ -114,9 +115,10 @@ function renderDevices() {
       const main = document.createElement("div"); main.className = "dev-main";
       const n = document.createElement("div"); n.className = "dev-name"; n.textContent = d.name || d.id;
       const sub = document.createElement("div"); sub.className = "dev-sub";
-      sub.textContent = kind === "miracast" ? `${d.id} · sinyal ${d.a} dBm` : `${d.id} · ${d.a}`;
+      sub.textContent = kind === "miracast" ? `${d.id} / sinyal ${d.a} dBm` : `${d.id} / ${d.a}`;
       main.append(n, sub);
       const badge = document.createElement("span"); badge.className = "badge";
+      badge.dataset.k = kind === "miracast" ? (d.b === "join" ? "join" : "negotiate") : "gcast";
       badge.textContent = kind === "miracast" ? (d.b === "join" ? "join" : "negosiasi") : "Google Cast";
       row.append(r, main, badge); nodes.push(row);
     }
@@ -137,24 +139,36 @@ function refreshControls() {
   // Opsi sesi hanya bisa diubah sebelum sesi dimulai; opsi lain terkunci saat cast berjalan
   const locked = p === "casting" || p === "stopping";
   for (const id of ["iface", "capture"]) $(id).disabled = sessionActive;
-  $("sess-note").textContent = sessionActive ? "terkunci selama sesi ini" : "berlaku saat Pindai";
+  $("sess-note").textContent = sessionActive ? "Terkunci selama sesi ini" : "Berlaku saat Pindai";
+  // Tampilan (Mirror/Extend, resolusi) baru relevan setelah perangkat dipilih
+  $("opt-card").hidden = !dev;
   for (const id of ["mode", "how", "go", "audio", "hw", "bitrate", "btn-reset"]) $(id).disabled = locked;
   document.querySelectorAll('input[name="disp"]').forEach((r) => (r.disabled = locked));
   $("fs-mira").disabled = locked || (dev && dev.kind === "gcast");
-  $("sel-label").textContent = dev ? `${dev.name} · ${dev.kind === "gcast" ? "Google Cast" : "Miracast"}` : "Belum ada perangkat dipilih";
+  $("sel-label").textContent = dev ? `${dev.name} (${dev.kind === "gcast" ? "Google Cast" : "Miracast"})` : "Belum ada perangkat dipilih";
 }
 
-function setPhase(p) { S.phase = p; renderDevices(); refreshControls(); }
+function setPhase(p) { S.phase = p; document.body.dataset.phase = p; renderDevices(); refreshControls(); }
 
 function updateDispHint() {
   const v = document.querySelector('input[name="disp"]:checked').value;
   $("disp-hint").textContent = v === "extend"
     ? "Perangkat menjadi monitor tambahan; atur posisinya di Settings → Displays."
-    : "Layar laptop ditampilkan sama persis.";
+    : S.canExtend ? "Layar laptop ditampilkan sama persis."
+    : "Layar laptop ditampilkan sama persis. Extend tidak tersedia: tangkapan layar di desktop ini tidak bisa membuat monitor virtual.";
+}
+
+// Extend hanya ditampilkan kalau tangkapan layar mendukung monitor virtual (berlaku untuk Miracast dan Google Cast)
+function applyExtendSupport() {
+  const ext = document.querySelector('input[name="disp"][value="extend"]');
+  ext.closest("label").hidden = !S.canExtend;
+  if (!S.canExtend && ext.checked) document.querySelector('input[name="disp"][value="mirror"]').checked = true;
+  updateDispHint();
 }
 
 function appendLog(line) {
   S.log.push(line);
+  $("log-card").hidden = false;   // jendela Log hanya tampil kalau ada isinya
   if (S.log.length > 3000) S.log.splice(0, S.log.length - 3000);
   const pre = $("log");
   const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
@@ -172,7 +186,8 @@ async function onScan() {
   }
   const f = readForm();
   S.devices = []; S.pending = []; S.checkErrors = []; S.lastError = ""; S.streaming = false;
-  stats.clear(); setStats([]); S.log = []; $("log").textContent = "";
+  S.canExtend = true; applyExtendSupport();
+  stats.clear(); setStats([]); S.log = []; $("log").textContent = ""; $("log-card").hidden = true;
   setPhase("starting");
   setPill("Memulai", "busy");
   setStatus("Meminta izin sistem…", "Kalau muncul dialog password, masukkan password administrator.");
@@ -233,6 +248,7 @@ function handleStatus(f) {
     return;
   }
   if (kind === "ERROR") { toast(a); return; }
+  if (kind === "CAPS") { S.canExtend = a === "1"; applyExtendSupport(); return; }
   if (kind !== "STATE") return;
   switch (a) {
     case "checking":
@@ -255,7 +271,7 @@ function handleStatus(f) {
       setPhase("ready");
       setPill(S.devices.length ? `${S.devices.length} perangkat` : "Tidak ada perangkat", S.devices.length ? "ok" : "warn");
       setStatus(S.devices.length ? "Pilih perangkat, lalu tekan Cast" : "Tidak ada perangkat",
-                S.devices.length ? "Mode tampilan dan resolusi bisa diubah sebelum Cast." : "Pindai ulang setelah perangkat siap.");
+                S.devices.length ? "Pengaturan tampilan muncul setelah perangkat dipilih." : "Pindai ulang setelah perangkat siap.");
       break;
     }
     case "connecting":

@@ -87,6 +87,7 @@ if [ ! -S "/run/wpa_supplicant/$IF" ]; then
 fi
 W() { timeout 5 wpa_cli -i "$IF" "$@" </dev/null; }
 GIF=""; PYPID=""; DHPID=""; TAILPID=""; CLEANING=0; GC_RULE=""
+CAN_EXTEND=1   # diisi preflight: 0 kalau tangkapan layar tidak bisa membuat monitor virtual
 DBUS_POLICY=/etc/dbus-1/system.d/zz-p2p-cast-temp.conf
 NM_CONF=/etc/NetworkManager/conf.d/99-p2p-manual.conf
 # Interface grup P2P bernama p2p-<wifi>-N, atau p2p-N kalau nama WiFi terlalu panjang (batas 15 karakter),
@@ -207,6 +208,14 @@ preflight() {
           python3 -I "$DIR/wfd_source.py" --check "${vargs[@]}" </dev/null 2>&1); rc=$?
     printf '%s\n' "$out" | grep -v '^\[OpenH264\]' | grep -vE '^[0-9]{2}:[0-9]{2}:[0-9]{2} Audio dari' || true
     [ "$rc" -eq 0 ] || fatal=1
+    # Extend (monitor virtual) bisa kalau tangkapan layar utama = Mutter API 4+ (GNOME 42+),
+    # atau portal yang menawarkan monitor virtual. Berlaku untuk Miracast dan Google Cast.
+    CAN_EXTEND=0
+    if printf '%s\n' "$out" | grep -qE 'OK +tangkapan layar: Mutter ScreenCast API versi ([4-9]|[1-9][0-9])' \
+       || printf '%s\n' "$out" | grep -qE 'OK +tangkapan layar: xdg-desktop-portal .*monitor virtual: ya'; then
+      CAN_EXTEND=1
+    fi
+    ev CAPS "$CAN_EXTEND"
   fi
   return $fatal
 }
@@ -318,6 +327,9 @@ gui_select() {
       *)      gerr "Perintah tidak dikenal: ${A[*]}"; continue ;;
     esac
     case "$disp" in mirror|extend) DISPLAY_MODE="$disp" ;; *) gerr "Tampilan tidak valid: $disp"; continue ;; esac
+    if [ "$disp" = extend ] && [ "$CAN_EXTEND" = 0 ]; then
+      gerr "Extend tidak didukung: tangkapan layar di laptop ini tidak bisa membuat monitor virtual; pakai Mirror"; continue
+    fi
     case "$mode" in 480p60|720p30|720p60|1080p30) ;; *) gerr "Resolusi tidak valid: $mode"; continue ;; esac
     # Opsi Advanced: dicek semua dulu, baru dipakai kalau valid
     how="$CONNECT_MODE"; go="$GO_INTENT"; extra=(); gextra=(); bad=""

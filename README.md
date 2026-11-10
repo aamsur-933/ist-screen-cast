@@ -48,15 +48,20 @@ aplikasi itu memakai Wi-Fi Direct yang sama.
 
 1. Buka aplikasi, lalu tekan **Pindai**. Kalau aplikasi dipasang dari `.deb`, password tidak diminta.
 2. Pilih perangkat. Miracast dan Google Cast tampil dalam satu daftar.
-3. Pilih **Mirror** atau **Extend**, dan resolusi.
+3. Pilih **Mirror** atau **Extend**, dan resolusi. Pengaturan ini baru muncul setelah perangkat dipilih.
+   Extend hanya muncul kalau tangkapan layar di laptop bisa membuat monitor virtual (Mutter di
+   GNOME 42+); lewat xdg-desktop-portal biasanya hanya Mirror. Ini berlaku untuk Miracast dan Google Cast.
 4. Tekan **Cast**. Kalau TV meminta persetujuan, setujui dengan remote.
 5. Tekan **Stop** untuk berhenti. Pengaturan jaringan dan audio sementara dikembalikan otomatis.
 
-Selama cast, bagian **Status** menampilkan info sesi. Untuk Google Cast di antaranya
+Bagian **Status** di atas selalu menunjukkan apa yang sedang terjadi dan langkah berikutnya. Jendela
+**Log** muncul setelah ada isinya. Selama cast, Status menampilkan info sesi. Untuk Google Cast di antaranya
 "Video di TV" (ukuran video yang benar-benar didekode TV) dan "Suara" (hanya di TV, atau
 di-mute dari laptop).
 
-Opsi **Advanced** sama dengan opsi terminal:
+Opsi tambahan sama dengan opsi terminal. Interface WiFi dan tangkapan layar ada di **Opsi
+pemindaian** (jendela Perangkat), karena dipakai saat Pindai; sisanya di **Advanced** (jendela
+Tampilan):
 
 | Opsi | Sama dengan | Kapan berlaku |
 |---|---|---|
@@ -447,7 +452,7 @@ atau reboot.
 | `cast.sh` | Orkestrasi Miracast: pengecekan, NetworkManager, D-Bus, firewall, join/negosiasi, DHCP; juga mode `--gui` |
 | `wfd_source.py` | Miracast source: tangkapan layar (Mutter / portal), RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
 | `gcast.sh` / `gcast.py` | Google Cast: firewall sementara, kontrol Cast, HTTP stream MP4 (H.264 + AAC), suara hanya di TV |
-| `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS) |
+| `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS; font Space Mono, Atkinson Hyperlegible, dan JetBrains Mono berlisensi OFL di `ui/fonts/`) |
 | `dhcp-hook.sh` | Hook udhcpc: hanya memasang IP, tanpa mengubah route/DNS |
 | `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236`, lalu `fake_sink.py 17236`) |
 | `p2p-test.sh` | Uji join Wi-Fi Direct saja |
