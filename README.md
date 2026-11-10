@@ -103,7 +103,9 @@ Tekan Enter untuk memilih perangkat bertanda `*` (default: perangkat pertama). U
 perangkat tertentu default: `sudo DEFAULT_NAME="Nama Perangkat" bash cast.sh`.
 
 **Mirror** menampilkan layar laptop apa adanya. **Extend** menjadikan perangkat monitor
-tambahan; atur posisinya di Settings → Displays.
+tambahan; atur posisinya di Settings → Displays. Extend butuh tangkapan layar yang bisa membuat
+monitor virtual: Mutter (GNOME 42+), atau portal desktop yang menyediakannya. Baris
+`tangkapan layar` di `--check` menunjukkan mana yang dipakai.
 
 Tekan Ctrl+C untuk berhenti dan membersihkan semuanya. Tekan Ctrl+C sekali lagi untuk keluar paksa.
 
@@ -138,13 +140,14 @@ membuat TV ikut senyap. Atur volume dengan remote TV.
 | Google Cast: TV memutar tapi layar hitam | Pastikan versi terbaru (format H.264/MP4). Format lama `--codec vp8` diketahui hitam di TV TCL. |
 | Google Cast: suara tidak keluar di TV | Pastikan ada aplikasi yang sedang bersuara di laptop. Cek baris "Suara" di GUI: kalau "di-mute dari laptop", tekan tombol mute laptop sekali lagi. Naikkan volume dengan remote TV. |
 | Suara laptop hilang setelah aplikasi/script mati paksa | Jalankan sebagai user biasa (tanpa sudo): `python3 /usr/lib/ist-screen-cast/gcast.py --restore-audio` (atau `python3 gcast.py --restore-audio` di folder repo). |
+| Tombol Extend tidak ada di aplikasi | Tangkapan layar di laptop ini tidak bisa membuat monitor virtual (biasanya karena lewat xdg-desktop-portal, bukan GNOME). Pakai Mirror, atau di **Opsi pemindaian** pilih tangkapan layar Otomatis/Mutter kalau desktopnya GNOME. |
 | `--check` menampilkan `XX` | Jalankan perintah `apt install` yang ditampilkan. |
 | Dialog "bagikan layar" muncul | Normal di desktop selain GNOME. Pilih layar, centang "ingat" kalau ada. |
 | Ingin memilih layar lain, tapi dialog tidak muncul lagi | Hapus `~/.local/state/miracast-cast/portal-*.token`. |
 | Setelah selesai, aplikasi cast lain tidak menemukan perangkat | `sudo systemctl restart NetworkManager` (WiFi putus beberapa detik). |
 | Script/aplikasi sempat dimatikan paksa | Lihat [Perubahan sistem](#perubahan-sistem) untuk cara mengembalikan manual. |
 
-Saat melapor masalah, sertakan log. Di aplikasi: buka bagian **Log**, lalu tekan **Salin**.
+Saat melapor masalah, sertakan log. Di aplikasi: buka jendela **Log** di bagian bawah, lalu tekan **Salin**.
 Di terminal: salin output lengkap.
 
 ## Perangkat yang sudah diuji
@@ -404,13 +407,16 @@ diizinkan. Script itu sendiri milik root di `/usr/lib`, jadi user tidak bisa men
 
 Di mode `--gui`, `cast.sh`:
 
-1. menjalankan pengecekan yang sama dengan `--check`;
+1. menjalankan pengecekan yang sama dengan `--check`, lalu mengirim `@@CAPS 1|0`: apakah
+   tangkapan layar bisa membuat monitor virtual. Kalau `0`, GUI menyembunyikan Extend;
 2. menyiapkan sistem, sama seperti mode terminal;
 3. memindai Miracast dan Google Cast bersamaan;
 4. mengirim daftar perangkat ke GUI (`@@DEV ...`), lalu menunggu perintah di stdin:
    `rescan`, `cast <miracast|gcast> <id> <mirror|extend> <mode> [opsi]`, atau `stop`.
 
-Semua input dicek ulang di `cast.sh`. Proses root tidak bisa dihentikan dengan sinyal dari user
+Status lain dikirim sebagai `@@STATE ...` (memeriksa, memindai, menyambung, menunggu persetujuan,
+tersambung) dan `@@ERROR ...`. Semua input dicek ulang di `cast.sh`, termasuk `extend` yang
+ditolak kalau `@@CAPS` bernilai `0`. Proses root tidak bisa dihentikan dengan sinyal dari user
 biasa, jadi tombol Stop mengirim `stop` (atau menutup stdin). Kalau GUI tertutup atau crash,
 `cast.sh` tetap membersihkan semuanya.
 

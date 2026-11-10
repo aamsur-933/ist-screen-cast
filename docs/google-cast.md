@@ -115,6 +115,9 @@ Yang ditemukan saat pengujian:
 - [x] Uji ke TV TCL: gambar dan suara (480p dan 720p, `videoInfo` sesuai)
 - [x] Suara hanya di TV, reset mute/volume, `--restore-audio`, `--local-audio`
 - [x] Integrasi ke GUI (daftar perangkat yang sama dengan Miracast)
+- [x] Extend (`--virtual`): monitor virtual lewat Mutter ScreenCast, sama dengan Miracast
+      (terlihat di journal: `Added virtual monitor Meta-0` saat sesi Google Cast). Lewat
+      xdg-desktop-portal tanpa monitor virtual tidak bisa; GUI lalu hanya menawarkan Mirror
 - [ ] Menu terminal `cast.sh` (sekarang terminal memakai `gcast.sh` terpisah)
 - [ ] Ukur delay (stopwatch) dan kelancaran. Sempat terlihat `currentTime` tertahan ±15 detik
       walau status PLAYING dan data tetap mengalir ±5 Mbit/s; perlu dicek di layar TV
