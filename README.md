@@ -1,6 +1,6 @@
 # Miracast dari Ubuntu 22.04 ke projektor/TV (eksperimental)
 
-Cast layar GNOME (Wayland) ke projektor Epson, TV LG webOS, dan perangkat Miracast
+Cast layar Linux (GNOME Wayland; desktop lain lewat xdg-desktop-portal) ke projektor Epson, TV LG webOS, dan perangkat Miracast
 lain lewat Wi-Fi Direct. Script ini dipakai karena GNOME Network Displays di
 Ubuntu 22.04 gagal ke projektor Epson.
 
@@ -23,6 +23,7 @@ Lalu jalankan:
     sudo bash cast.sh --hw               # coba encoder hardware, otomatis kembali ke openh264
     sudo bash cast.sh --iface wlp2s0     # interface WiFi tertentu (default: dideteksi otomatis)
     sudo bash cast.sh --check            # hanya cek kesiapan laptop, tanpa mengubah apa pun
+    sudo bash cast.sh --capture portal   # paksa tangkapan layar lewat xdg-desktop-portal (default: auto)
 
 Setelah memilih perangkat, script menanyakan tampilan: **1) Mirror** (default, Enter) atau
 **2) Extend** (perangkat menjadi monitor tambahan; atur posisinya di Settings → Displays).
@@ -68,6 +69,23 @@ disimpan. Setelah negosiasi baru berhasil, grup lama untuk perangkat yang sama d
 Tekan Ctrl+C untuk berhenti dan membersihkan semuanya. Tekan Ctrl+C sekali lagi
 untuk keluar paksa.
 
+## Google Cast (Android TV / Google TV / Chromecast)
+
+Untuk TV yang **tidak** mendukung Miracast (tidak muncul di menu `cast.sh`), misalnya TV TCL
+Android TV. Jalurnya lewat WiFi biasa, jadi laptop dan TV harus berada di jaringan yang sama.
+
+    sudo bash gcast.sh                                   # pindai, pilih perangkat dari menu
+    sudo bash gcast.sh --device "Living Room TV"         # langsung ke perangkat (nama atau IP)
+    sudo bash gcast.sh --virtual                         # extend (monitor virtual)
+    sudo bash gcast.sh --list                            # hanya tampilkan perangkat
+    sudo bash gcast.sh --device "Living Room TV" --status-only   # uji koneksi, tanpa membuka app di TV
+
+Cara kerja: laptop membuka koneksi kontrol Cast (TLS port 8009), menjalankan **Default Media
+Receiver** (`CC1AD845`) di TV, lalu meminta TV memutar `http://<laptop>:8099/screen.webm`.
+Stream itu berisi tangkapan layar desktop (VP8 + Opus, WebM). sudo hanya dipakai untuk
+membuka port 8099 di firewall selama sesi. Delay lebih besar dari Miracast karena TV
+mem-buffer stream HTTP. Rencana dan detail protokol ada di `docs/google-cast.md`.
+
 ## Dipakai di laptop lain (tim)
 
 Jalankan dulu `sudo bash cast.sh --check`. Perintah ini tidak mengubah apa pun dan
@@ -82,7 +100,7 @@ Yang diperiksa:
 | Interface WiFi dan `p2p-dev-<wifi>` merespons `ping` | chip/driver dan wpa_supplicant harus mendukung Wi-Fi Direct |
 | `iw list` melaporkan P2P-GO/P2P-client (kalau `iw` terpasang) | dukungan driver |
 | Sesi desktop Wayland | Extend (monitor virtual) butuh Wayland |
-| GNOME Mutter ScreenCast API | tangkapan layar; KDE/XFCE tidak didukung |
+| Mutter ScreenCast API (utama) atau xdg-desktop-portal ScreenCast (cadangan) | tangkapan layar; minimal salah satu harus ada |
 | Elemen GStreamer wajib, encoder openh264, sumber audio | jalur media |
 | Encoder hardware yang tersedia | informasi untuk `--hw` |
 
@@ -96,7 +114,29 @@ Constrained Baseline; kalau tidak ada yang lolos, script kembali ke openh264. En
 dipakai tercatat di log (`Encoder video: ...`).
 
 Yang belum pernah diuji: laptop selain Ubuntu 22.04 (NetworkManager 1.36), chip WiFi
-non-Intel, dan encoder hardware (di laptop pengembang tidak ada yang terpasang).
+non-Intel, encoder hardware (di laptop pengembang tidak ada yang terpasang), dan desktop
+selain GNOME.
+
+### Tangkapan layar: Mutter atau xdg-desktop-portal
+
+| | Mutter ScreenCast (utama) | xdg-desktop-portal ScreenCast (cadangan) |
+|---|---|---|
+| Desktop | GNOME; kemungkinan juga Gala (elementary OS, turunan Mutter) | KDE Plasma, wlroots (Sway/Hyprland), dll., asal backend portalnya terpasang |
+| Dialog persetujuan | tidak ada | dialog "bagikan layar" muncul dan pengguna memilih layar |
+| Persetujuan diingat | - | ya, kalau portal versi 4+; token di `~/.local/state/miracast-cast/` |
+| Extend (monitor virtual) | ya (API versi 4+, GNOME 42+) | hanya kalau portal desktop itu menawarkannya |
+
+Mode `auto` (default) mencoba Mutter dulu, lalu portal kalau Mutter tidak ada. Backend yang
+dipakai tercatat di log (`Tangkapan layar: ...`), dan `--check` menampilkan keduanya. Kalau
+dialog portal tidak lagi muncul padahal ingin memilih layar lain, hapus
+`~/.local/state/miracast-cast/portal-*.token`.
+
+Keduanya butuh sesi **Wayland**. elementary OS 8 memakai X11 secara default, jadi pilih sesi
+"Secure Session" (Wayland) di layar login. Untuk mengecek apakah desktop menyediakan
+Mutter ScreenCast:
+
+    gdbus introspect --session --dest org.gnome.Mutter.ScreenCast \
+      --object-path /org/gnome/Mutter/ScreenCast | grep -i version
 
 ## Kenapa perlu script ini
 
@@ -132,15 +172,20 @@ non-Intel, dan encoder hardware (di laptop pengembang tidak ada yang terpasang).
 | File | Fungsi |
 |---|---|
 | `cast.sh` | Orkestrasi: NM, D-Bus, firewall, join/negosiasi, DHCP, lalu menjalankan server |
-| `wfd_source.py` | Miracast source: ScreenCast GNOME, RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
+| `wfd_source.py` | Miracast source: tangkapan layar (Mutter / portal), RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
 | `dhcp-hook.sh` | Hook udhcpc: hanya memasang IP, tanpa mengubah route/DNS |
 | `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236` lalu `fake_sink.py 17236`) |
 | `p2p-test.sh` | Uji join Wi-Fi Direct saja |
+| `gcast.sh` / `gcast.py` | Google Cast: firewall sementara + kontrol Cast + HTTP stream WebM |
 
 ## Perubahan sistem
 
-Satu-satunya perubahan yang **menetap**: `/var/lib/miracast-cast/` (credential grup persistent
-untuk jalur cepat; hapus folder ini untuk mengulang dari negosiasi biasa).
+Perubahan yang **menetap**:
+
+- `/var/lib/miracast-cast/`: credential grup persistent untuk jalur cepat. Hapus folder ini
+  untuk mengulang dari negosiasi biasa.
+- `~/.local/state/miracast-cast/portal-*.token`: persetujuan dialog portal. File ini hanya ada
+  kalau xdg-desktop-portal dipakai.
 
 Perubahan lain bersifat **sementara** dan dihapus saat Ctrl+C:
 

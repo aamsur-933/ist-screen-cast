@@ -15,6 +15,7 @@
 #   sudo bash cast.sh --hw               # coba encoder hardware (VA-API/NVENC), fallback ke openh264
 #   sudo bash cast.sh --iface wlp2s0     # interface WiFi tertentu (default: dideteksi otomatis)
 #   sudo bash cast.sh --check            # hanya cek kesiapan laptop, tanpa mengubah apa pun
+#   sudo bash cast.sh --capture portal   # paksa tangkapan layar lewat xdg-desktop-portal (default: auto)
 # Hentikan dengan Ctrl+C (semua dibersihkan otomatis).
 set -u
 DEFAULT_NAME="LOBBY.A1"            # pilihan default di menu (Enter)
@@ -162,14 +163,20 @@ preflight() {
   case "$types" in
     *wayland*) ok "sesi desktop $U: wayland" ;;
     *x11*)     bad "sesi desktop $U: x11" "Mirror kemungkinan jalan; Extend (monitor virtual) butuh sesi Wayland" ;;
-    *)         bad "sesi desktop $U tidak terdeteksi" "jalankan dari sesi desktop GNOME yang sedang login" ;;
+    *)         bad "sesi desktop $U tidak terdeteksi" "jalankan dari sesi desktop yang sedang login" ;;
   esac
-  # Python + GStreamer + GNOME ScreenCast + audio, dicek sebagai pengguna desktop
+  # Python + GStreamer + tangkapan layar (Mutter / xdg-desktop-portal) + audio, dicek sebagai pengguna desktop
   if ! sudo -u "$U" python3 -I -c 'import gi; gi.require_version("Gst", "1.0"); from gi.repository import Gst' 2>/dev/null; then
     bad "Python GObject / GStreamer introspection tidak ada" \
         "sudo apt install python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0"; fatal=1
   else
-    local vargs=() out rc; [ "$DISPLAY_MODE" = extend ] && vargs=(--virtual)
+    local vargs=() out rc i; [ "$DISPLAY_MODE" = extend ] && vargs=(--virtual)
+    for ((i = 0; i < ${#PY_ARGS[@]}; i++)); do   # --capture ikut dicek
+      case "${PY_ARGS[$i]}" in
+        --capture) vargs+=(--capture "${PY_ARGS[$((i + 1))]:-auto}") ;;
+        --capture=*) vargs+=("${PY_ARGS[$i]}") ;;
+      esac
+    done
     out=$(sudo -u "$U" env XDG_RUNTIME_DIR="/run/user/$UIDN" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" \
           python3 -I "$DIR/wfd_source.py" --check "${vargs[@]}" </dev/null 2>&1); rc=$?
     printf '%s\n' "$out" | grep -v '^\[OpenH264\]' | grep -vE '^[0-9]{2}:[0-9]{2}:[0-9]{2} Audio dari' || true

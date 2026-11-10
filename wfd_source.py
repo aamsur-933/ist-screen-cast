@@ -42,8 +42,31 @@ def log(*a):
 
 
 # --------------------------------------------------------------------------- screencast
-class ScreenCast:
+# Primary: org.gnome.Mutter.ScreenCast (GNOME; no dialog, supports virtual monitor).
+# Fallback: xdg-desktop-portal ScreenCast (KDE, wlroots, ...): needs a one-time "share screen"
+# approval dialog; virtual monitor only if the desktop's portal offers it.
+# Force a backend for testing with --capture mutter|portal (or MIRACAST_CAPTURE=...).
+def ScreenCast(virtual, backend=None):
+    backend = backend or os.environ.get("MIRACAST_CAPTURE", "auto")
+    if backend in ("auto", "mutter"):
+        try:
+            cast = MutterScreenCast(virtual)
+            log("Tangkapan layar: Mutter ScreenCast (utama)")
+            return cast
+        except GLib.Error as e:
+            if backend == "mutter":
+                raise
+            log(f"Mutter ScreenCast tidak tersedia ({e.message.split(':')[-1].strip()}), pakai xdg-desktop-portal")
+    cast = PortalScreenCast(virtual)
+    log("Tangkapan layar: xdg-desktop-portal ScreenCast (cadangan)")
+    return cast
+
+
+class MutterScreenCast:
     BUS = "org.gnome.Mutter.ScreenCast"
+
+    def pipewire_src(self):
+        return f"pipewiresrc path={self.node}"
 
     def __init__(self, virtual):
         self.node = None
@@ -75,6 +98,129 @@ class ScreenCast:
             self.session.call_sync("Stop", None, 0, -1, None)
         except GLib.Error:
             pass
+
+
+class PortalScreenCast:
+    """org.freedesktop.portal.ScreenCast: CreateSession -> SelectSources -> Start (dialog) ->
+    OpenPipeWireRemote (fd). Each portal call answers asynchronously via a Request::Response
+    signal on a predictable object path, so the signal is subscribed before the call."""
+    DEST = "org.freedesktop.portal.Desktop"
+    PATH = "/org/freedesktop/portal/desktop"
+    IFACE = "org.freedesktop.portal.ScreenCast"
+    TYPE_MONITOR, TYPE_VIRTUAL = 1, 4
+    CURSOR_HIDDEN, CURSOR_EMBEDDED = 1, 2
+
+    def __init__(self, virtual):
+        self.node = self.fd = self.session_handle = None
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.sender = self.bus.get_unique_name()[1:].replace(".", "_")
+        self._seq = 0
+        version = self.prop("version")
+        types = self.prop("AvailableSourceTypes")
+        cursors = self.prop("AvailableCursorModes")
+        res = self._request("CreateSession", lambda t: GLib.Variant("(a{sv})", ({
+            "handle_token": GLib.Variant("s", t),
+            "session_handle_token": GLib.Variant("s", "s" + t)},)))
+        self.session_handle = res["session_handle"]
+        want = self.TYPE_MONITOR
+        if virtual:
+            if types & self.TYPE_VIRTUAL:
+                want = self.TYPE_VIRTUAL
+            else:
+                log("Portal desktop ini tidak mendukung monitor virtual (Extend); pakai Mirror")
+        self.kind = "virtual" if want == self.TYPE_VIRTUAL else "monitor"
+        opts = {"types": GLib.Variant("u", want), "multiple": GLib.Variant("b", False),
+                "cursor_mode": GLib.Variant("u", self.CURSOR_EMBEDDED if cursors & self.CURSOR_EMBEDDED
+                                            else self.CURSOR_HIDDEN)}
+        if version >= 4:  # remember the user's choice: no dialog next time
+            opts["persist_mode"] = GLib.Variant("u", 2)
+            tok = self._load_token()
+            if tok:
+                opts["restore_token"] = GLib.Variant("s", tok)
+        self._request("SelectSources", lambda t: GLib.Variant("(oa{sv})", (
+            self.session_handle, {**opts, "handle_token": GLib.Variant("s", t)})))
+        log("Portal: setujui dialog 'Bagikan layar' di desktop (kalau muncul)")
+        res = self._request("Start", lambda t: GLib.Variant("(osa{sv})", (
+            self.session_handle, "", {"handle_token": GLib.Variant("s", t)})), timeout=180)
+        self.node = res["streams"][0][0]
+        if res.get("restore_token"):
+            self._save_token(res["restore_token"])
+        ret, fds = self.bus.call_with_unix_fd_list_sync(
+            self.DEST, self.PATH, self.IFACE, "OpenPipeWireRemote",
+            GLib.Variant("(oa{sv})", (self.session_handle, {})), GLib.VariantType("(h)"),
+            0, -1, None, None)
+        self.fd = fds.get(ret.unpack()[0])
+        log(f"ScreenCast: PipeWire node {self.node} (portal, fd {self.fd})")
+
+    def prop(self, name):
+        try:
+            v = self.bus.call_sync(self.DEST, self.PATH, "org.freedesktop.DBus.Properties", "Get",
+                                   GLib.Variant("(ss)", (self.IFACE, name)), None, 0, 3000, None)
+            return v.unpack()[0]
+        except GLib.Error:
+            return 0
+
+    def _request(self, method, build, timeout=30):
+        self._seq += 1
+        token = f"mcast{os.getpid()}_{self._seq}"
+        path = f"{self.PATH}/request/{self.sender}/{token}"
+        state = {}
+
+        def on_response(_conn, _sender, _path, _iface, _signal, params):
+            state["code"], state["results"] = params.unpack()
+
+        sub = self.bus.signal_subscribe(self.DEST, "org.freedesktop.portal.Request", "Response",
+                                        path, None, Gio.DBusSignalFlags.NO_MATCH_RULE, on_response)
+        try:
+            self.bus.call_sync(self.DEST, self.PATH, self.IFACE, method, build(token),
+                               None, 0, -1, None)
+            ctx, end = GLib.MainContext.default(), time.time() + timeout
+            while "code" not in state and time.time() < end:
+                if not ctx.iteration(False):
+                    time.sleep(0.02)
+        finally:
+            self.bus.signal_unsubscribe(sub)
+        if "code" not in state:
+            raise RuntimeError(f"portal {method}: tidak ada jawaban dalam {timeout} detik")
+        if state["code"] != 0:
+            raise RuntimeError(f"portal {method}: dibatalkan/ditolak (kode {state['code']})")
+        return state["results"]
+
+    def _token_file(self):
+        base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+        return os.path.join(base, "miracast-cast", f"portal-{self.kind}.token")
+
+    def _load_token(self):
+        try:
+            with open(self._token_file()) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    def _save_token(self, tok):
+        try:
+            os.makedirs(os.path.dirname(self._token_file()), exist_ok=True)
+            with open(self._token_file(), "w") as f:
+                f.write(tok)
+        except OSError:
+            pass
+
+    def pipewire_src(self):
+        # pipewiresrc takes ownership of the fd and closes it; give each pipeline its own copy
+        return f"pipewiresrc fd={os.dup(self.fd)} path={self.node}"
+
+    def stop(self):
+        if self.session_handle:
+            try:
+                self.bus.call_sync(self.DEST, self.session_handle, "org.freedesktop.portal.Session",
+                                   "Close", None, None, 0, 3000, None)
+            except GLib.Error:
+                pass
+        if self.fd is not None:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
 
 
 # --------------------------------------------------------------------------- media
@@ -325,7 +471,7 @@ class Streamer:
         ka = " keepalive-time=500" if keepalive else ""
         fmt, enc = encoder_spec(encoder, bitrate, fps)
         video = (
-            f"pipewiresrc path={node} do-timestamp=true{ka} ! "
+            f"{node} do-timestamp=true{ka} ! "   # node = ScreenCast.pipewire_src()
             # videorate first: GNOME delivers variable framerate (0/1), which videoconvert 1.20 rejects
             f"videorate ! video/x-raw,framerate={fps}/1 ! videoconvert ! videoscale ! "
             f"video/x-raw,format={fmt},width={w},height={h},pixel-aspect-ratio=1/1 ! "
@@ -603,7 +749,7 @@ class WfdSession:
         if self.cast.node is None:
             raise RtspError("no PipeWire node from ScreenCast")
         w, h, fps = self.mode
-        self.streamer = Streamer(self.cast.node, self.peer[0], self.client_port, w, h, fps,
+        self.streamer = Streamer(self.cast.pipewire_src(), self.peer[0], self.client_port, w, h, fps,
                                  self.audio, self.args.bitrate, self.args.encoder)
         self.streamer.start()
         log(f"Streaming to {self.peer[0]}:{self.client_port}")
@@ -643,21 +789,47 @@ def run_checks(args):
         print(f"  {'OK ' if ok else 'XX '} {text}" + (f"\n        -> {hint}" if hint else ""), flush=True)
 
     print(f"  OK  {Gst.version_string()} + PyGObject")
-    try:  # GNOME screen capture API
-        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        res = bus.call_sync("org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast",
-                            "org.freedesktop.DBus.Properties", "Get",
-                            GLib.Variant("(ss)", ("org.gnome.Mutter.ScreenCast", "Version")),
-                            None, 0, 3000, None)
-        ver = res.unpack()[0]
-        line(True, f"GNOME Mutter ScreenCast API versi {ver}")
+    # Screen capture: Mutter ScreenCast (primary), xdg-desktop-portal ScreenCast (fallback)
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+    def dbus_prop(dest, path, iface, name):
+        return bus.call_sync(dest, path, "org.freedesktop.DBus.Properties", "Get",
+                             GLib.Variant("(ss)", (iface, name)), None, 0, 3000, None).unpack()[0]
+
+    mutter_ok = False
+    try:
+        if args.capture == "portal":
+            raise GLib.Error("dilewati (--capture portal)")
+        ver = dbus_prop("org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast",
+                        "org.gnome.Mutter.ScreenCast", "Version")
+        mutter_ok = True
+        line(True, f"tangkapan layar: Mutter ScreenCast API versi {ver} (utama)")
         if args.virtual and ver < 4:
-            line(False, "Extend (monitor virtual) butuh ScreenCast API versi 4+ (GNOME 42+)")
+            line(False, "Extend (monitor virtual) butuh Mutter ScreenCast API versi 4+ (GNOME 42+)")
+            fatal = True
+    except GLib.Error:
+        if args.capture == "mutter":
+            line(False, "Mutter ScreenCast API tidak tersedia, padahal dipaksa --capture mutter")
+            fatal = True
+        elif args.capture == "auto":
+            line(False, "Mutter ScreenCast API tidak tersedia (bukan GNOME/Gala); dicoba xdg-desktop-portal")
+    try:
+        pver = dbus_prop(PortalScreenCast.DEST, PortalScreenCast.PATH, PortalScreenCast.IFACE, "version")
+        ptypes = dbus_prop(PortalScreenCast.DEST, PortalScreenCast.PATH, PortalScreenCast.IFACE,
+                           "AvailableSourceTypes")
+        virt = "ya" if ptypes & PortalScreenCast.TYPE_VIRTUAL else "tidak"
+        remember = "ya" if pver >= 4 else "tidak (dialog muncul setiap sesi)"
+        line(True, f"{'cadangan' if mutter_ok else 'tangkapan layar'}: xdg-desktop-portal ScreenCast versi {pver} "
+                   f"(monitor virtual: {virt}; ingat persetujuan: {remember})")
+        if not mutter_ok and args.virtual and not ptypes & PortalScreenCast.TYPE_VIRTUAL:
+            line(False, "Extend (monitor virtual) tidak tersedia lewat portal desktop ini", "pakai Mirror")
             fatal = True
     except GLib.Error as e:
-        line(False, "GNOME Mutter ScreenCast API tidak tersedia",
-             "butuh desktop GNOME (KDE/XFCE/dll. tidak didukung) - " + e.message)
-        fatal = True
+        line(False, "xdg-desktop-portal ScreenCast tidak tersedia",
+             "sudo apt install xdg-desktop-portal + backend desktop (mis. xdg-desktop-portal-gnome/-kde)"
+             if not mutter_ok else "")
+        if not mutter_ok:
+            fatal = True
     missing = sorted({pkg for el, pkg in REQUIRED_ELEMENTS.items() if not Gst.ElementFactory.find(el)})
     gone = [el for el in REQUIRED_ELEMENTS if not Gst.ElementFactory.find(el)]
     if gone:
@@ -724,6 +896,8 @@ def main():
     ap.add_argument("--port", type=int, default=7236)
     ap.add_argument("--once", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--capture", choices=["auto", "mutter", "portal"], default="auto",
+                    help="tangkapan layar: auto = Mutter dulu, portal kalau tidak ada")
     ap.add_argument("--hw", action="store_true",
                     help="try a hardware H.264 encoder (VA-API/NVENC), fall back to openh264")
     ap.add_argument("--check", action="store_true", help="only check requirements, then exit")
@@ -731,6 +905,7 @@ def main():
 
     if args.check:
         return run_checks(args)
+    os.environ["MIRACAST_CAPTURE"] = args.capture
     args.encoder = choose_encoder(args.hw)
     log(f"Encoder video: {args.encoder}")
     cast = ScreenCast(args.virtual)

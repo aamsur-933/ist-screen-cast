@@ -43,3 +43,12 @@ memakai tombol Cast di situsnya.
 
 - Container dan codec yang paling stabil untuk `LIVE` di Android TV TCL.
 - Delay sebenarnya: perlu diukur dengan stopwatch, seperti yang disarankan untuk Miracast.
+
+## Status implementasi (`gcast.py`, `gcast.sh`)
+
+- [x] Discovery mDNS (`avahi-browse`), menu, `--device`, `--list`
+- [x] Cast channel: TLS, `CastMessage` di-encode manual, framing, heartbeat PING/PONG
+- [x] `LAUNCH CC1AD845`, `CONNECT` ke app, `LOAD` LIVE, `STOP` saat Ctrl+C
+- [x] HTTP stream WebM (VP8 + Opus) dari ScreenCast; diuji lokal: file valid, terbaca GStreamer
+- [ ] Uji ke TV TCL asli (saat implementasi TV sedang mati/standby, tidak terjangkau)
+- [ ] Integrasi ke menu `cast.sh`
