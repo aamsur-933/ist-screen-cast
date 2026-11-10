@@ -50,5 +50,12 @@ memakai tombol Cast di situsnya.
 - [x] Cast channel: TLS, `CastMessage` di-encode manual, framing, heartbeat PING/PONG
 - [x] `LAUNCH CC1AD845`, `CONNECT` ke app, `LOAD` LIVE, `STOP` saat Ctrl+C
 - [x] HTTP stream WebM (VP8 + Opus) dari ScreenCast; diuji lokal: file valid, terbaca GStreamer
-- [ ] Uji ke TV TCL asli (saat implementasi TV sedang mati/standby, tidak terjangkau)
+- [x] Uji ke TV TCL asli (2026-11-10): WebM/VP8 -> PLAYING tapi layar hitam, tanpa suara, tanpa `videoInfo`
+- [x] Ganti ke H.264 (openh264) + AAC, MPEG-TS -> ffmpeg `-c copy` -> MP4 terfragmentasi
+      (`frag_keyframe+empty_moov+default_base_moof`). `mp4mux` GStreamer 1.20 tidak dipakai: satu `trun`
+      per sampel, Chromium hanya mendekode frame pertama (PIPELINE_ERROR_DECODE). Di TV TCL:
+      `videoInfo` 1280x720, suara terdengar
+- [x] Suara hanya di TV: sink PulseAudio sementara `ist_screencast` (dikembalikan saat berhenti,
+      `--restore-audio` untuk sisa sesi yang mati tidak rapi)
+- [x] Perbaikan: `vp8enc target-bitrate` dalam bit/s (dulu kbit/s, jadi 6 kbit/s)
 - [ ] Integrasi ke menu `cast.sh`

@@ -291,11 +291,18 @@ function handleText(raw) {
     setStatus(S.quitting ? "Membersihkan sebelum keluar…" : "Membersihkan…", "Pengaturan jaringan sementara dikembalikan.");
     return;
   }
-  if (/^(Gagal tersambung|Tidak dapat IP|Server Miracast gagal start|Perangkat '.*' tidak ditemukan|GStreamer ERROR|TV tidak membuka|TV melaporkan|Koneksi Cast putus|Tidak ada perangkat Google Cast|Perangkat .* tidak ditemukan|portal .*: )/.test(line)
+  if (/^(Gagal tersambung|Koneksi Wi-Fi Direct ke .* putus|Tidak dapat IP|Server Miracast gagal start|Perangkat '.*' tidak ditemukan|GStreamer ERROR|TV tidak membuka|TV melaporkan|ffmpeg tidak terpasang|Koneksi Cast putus|Tidak ada perangkat Google Cast|Perangkat .* tidak ditemukan|portal .*: )/.test(line)
       || /Traceback|Error:|RuntimeError/.test(line)) {
     S.lastError = line;
   }
+  if (/^Koneksi Wi-Fi Direct ke .* putus/.test(line)) S.streaming = false; // tampil sebagai error, bukan "selesai"
   if (S.phase !== "casting") return;
+  if ((m = line.match(/^Wi-Fi Direct terputus sebelum perangkat tersambung: (.*)\. Menyambung ulang \((\d+\/\d+)\)/))) {
+    setPill("Menyambung ulang", "warn"); countdown(0);
+    setStatus(`Menyambung ulang (${m[2]})…`, m[1].charAt(0).toUpperCase() + m[1].slice(1) + ".");
+    stat("Sambung ulang", m[2]);
+    return;
+  }
   if (/Invitation diterima/.test(line)) stat("Koneksi", "jalur cepat");
   else if (/Invitation tidak berhasil/.test(line)) stat("Koneksi", "negosiasi baru");
   else if ((m = line.match(/^IP laptop: (\S+)/))) stat("IP laptop", m[1]);
@@ -310,6 +317,9 @@ function handleText(raw) {
     S.streaming = true; setPill("Sedang cast", "ok");
     setStatus("Sedang cast", "Tekan Stop untuk berhenti. Pengaturan jaringan dikembalikan otomatis.");
   } else if ((m = line.match(/^stream: ([\d.]+) MB terkirim/))) stat("Terkirim", `${m[1]} MB`);
+  else if ((m = line.match(/^TV: video (\d+x\d+)/))) stat("Video di TV", m[1]);
+  else if (/^Suara laptop dialihkan ke TV|^Suara ke TV aktif lagi/.test(line)) stat("Suara", "hanya di TV");
+  else if (/^Suara ke TV di-mute dari laptop/.test(line)) { stat("Suara", "di-mute dari laptop"); toast("Suara ke TV di-mute dari laptop"); }
   else if (/^TV: BUFFERING/.test(line)) setStatus("TV mem-buffer stream…", "Google Cast butuh beberapa detik.");
   else if (/^Perintah LOAD terkirim/.test(line)) setStatus("TV membuka stream…", "Google Cast butuh beberapa detik.");
   else if ((m = line.match(/^Stream tersedia di (\S+)/))) stat("Stream", m[1]);

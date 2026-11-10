@@ -22,7 +22,9 @@ lihat [Perangkat yang sudah diuji](#perangkat-yang-sudah-diuji).
       sudo apt install wpasupplicant network-manager iptables busybox iproute2 pulseaudio-utils \
         python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire \
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-        gstreamer1.0-pulseaudio avahi-utils
+        gstreamer1.0-pulseaudio avahi-utils ffmpeg
+
+  `ffmpeg` hanya dipakai untuk Google Cast.
 
 `avahi-utils` hanya dibutuhkan untuk Google Cast.
 
@@ -307,8 +309,18 @@ ScreenCast tersedia:
 ### Google Cast
 
 Laptop membuka koneksi kontrol Cast (TLS port 8009) dan menjalankan **Default Media Receiver**
-(`CC1AD845`) di TV. Lalu TV diminta memutar `http://<laptop>:8099/screen.webm`, yaitu tangkapan
-layar (VP8 + Opus, WebM) yang di-stream dari laptop. Detail protokol ada di `docs/google-cast.md`.
+(`CC1AD845`) di TV. Lalu TV diminta memutar `http://<laptop>:8099/screen.mp4`, yaitu tangkapan
+layar yang di-stream dari laptop: H.264 (openh264) + AAC, dibungkus ffmpeg (`-c copy`, tanpa encode
+ulang) menjadi MP4 terfragmentasi. Detail protokol ada di `docs/google-cast.md`.
+
+- **Suara hanya di TV.** Selama cast, `gcast.py` membuat sink PulseAudio sementara
+  (`ist_screencast`) dan menjadikannya output default, jadi speaker laptop diam. Saat Stop, output
+  dikembalikan. Kalau proses mati tidak rapi, `gcast.sh`/GUI menjalankan `gcast.py --restore-audio`.
+  Pakai `--local-audio` supaya suara tetap keluar di laptop juga.
+- **Kenapa bukan WebM/VP8.** Format lama (`--codec vp8`) diputar TV TCL (Android TV) dengan
+  status PLAYING tapi layar hitam dan tanpa suara.
+- **Kenapa ffmpeg, bukan `mp4mux`.** `mp4mux` GStreamer 1.20 menulis satu `trun` per sampel, dan
+  Chromium (dasar Default Media Receiver) hanya bisa mendekode frame pertama.
 
 ### Aplikasi GUI
 
@@ -379,7 +391,7 @@ Aturan iptables hilang sendiri setelah reboot.
 |---|---|
 | `cast.sh` | Orkestrasi Miracast: pengecekan, NetworkManager, D-Bus, firewall, join/negosiasi, DHCP; juga mode `--gui` |
 | `wfd_source.py` | Miracast source: tangkapan layar (Mutter / portal), RTSP M1–M7, GStreamer H.264 + LPCM/AAC |
-| `gcast.sh` / `gcast.py` | Google Cast: firewall sementara, kontrol Cast, HTTP stream WebM |
+| `gcast.sh` / `gcast.py` | Google Cast: firewall sementara, kontrol Cast, HTTP stream MP4 (H.264 + AAC), suara hanya di TV |
 | `gui/` | Aplikasi IST Screen Cast (Tauri v2): `src-tauri/src/main.rs` (pkexec + stdin/stdout), `ui/` (HTML/CSS/JS) |
 | `dhcp-hook.sh` | Hook udhcpc: hanya memasang IP, tanpa mengubah route/DNS |
 | `fake_sink.py` | Projektor tiruan untuk uji lokal (`wfd_source.py --port 17236`, lalu `fake_sink.py 17236`) |

@@ -19,6 +19,9 @@ FW_RULE=(INPUT -p tcp --dport "$PORT" -j ACCEPT)
 cleanup() {
   trap - EXIT INT TERM
   iptables -D "${FW_RULE[@]}" 2>/dev/null && echo "Port $PORT ditutup lagi."
+  # suara laptop kembali normal walau gcast.py tidak berhenti rapi (sink audio sementara dihapus)
+  timeout 10 sudo -u "$U" env XDG_RUNTIME_DIR="/run/user/$UIDN" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" \
+    python3 -I "$DIR/gcast.py" --restore-audio </dev/null
   stty sane 2>/dev/null
 }
 trap cleanup EXIT

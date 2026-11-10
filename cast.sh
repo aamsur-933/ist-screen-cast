@@ -120,6 +120,9 @@ cleanup() {
   local r
   for r in "${FW_RULES[@]}"; do iptables -D $r 2>/dev/null; done
   [ -n "$GC_RULE" ] && iptables -D $GC_RULE 2>/dev/null
+  # Google Cast: pastikan suara laptop kembali normal walau gcast.py tidak berhenti rapi
+  [ -n "$GC_RULE" ] && timeout 10 sudo -u "$U" env XDG_RUNTIME_DIR="/run/user/$UIDN" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" python3 -I "$DIR/gcast.py" --restore-audio </dev/null
   if [ -f "$DBUS_POLICY" ]; then
     rm -f "$DBUS_POLICY"
     timeout 5 dbus-send --system --type=method_call --dest=org.freedesktop.DBus / org.freedesktop.DBus.ReloadConfig 2>/dev/null
@@ -449,6 +452,9 @@ active_gif() {
   return 1
 }
 
+# ---- Langkah 5-6 sebagai fungsi: dipanggil lagi kalau grup P2P hilang sebelum perangkat membuka sesi ----
+# (isi fungsi sengaja tidak diindentasi; berakhir di "} # link_peer")
+link_peer() {
 echo "== 5/6 Wi-Fi Direct ke $PEER_NAME ($HOW)"
 # Selalu mulai dari awal: perangkat memulai sesi Miracast tepat setelah tersambung.
 if active_gif >/dev/null; then
@@ -662,10 +668,66 @@ EOF
   setsid bash -c "tail -n +1 -F /run/p2p-cast-udhcpd.log 2>/dev/null | sed -u 's/^/   dhcp: /'" </dev/null &
   TAILPID=$!
 fi
+} # link_peer
 
-echo
-echo ">>> Menunggu perangkat menyambung ke laptop. Lihat layar perangkat. Ctrl+C untuk berhenti."
-ev STATE waiting
-# 'wait' bisa diinterupsi Ctrl+C (trap langsung jalan); loop supaya tetap menunggu kalau ada sinyal lain
-while kill -0 "$PYPID" 2>/dev/null; do wait "$PYPID" 2>/dev/null; done
+# Grup P2P ini masih aktif? (interface ada, operstate up + carrier)
+gif_alive() {
+  [ -n "$GIF" ] && [ "$(cat "/sys/class/net/$GIF/operstate" 2>/dev/null)" = up ] && \
+  [ "$(cat "/sys/class/net/$GIF/carrier" 2>/dev/null)" = 1 ]
+}
+# Perangkat sudah membuka sesi RTSP (TCP :7236) ke laptop?
+sink_seen() { ss -Htn state established '( sport = :7236 )' 2>/dev/null | grep -q .; }
+
+MAX_RELINK=2   # berapa kali menyambung ulang kalau grup hilang sebelum perangkat membuka sesi
+RELINK=0
+while :; do
+  TL=$(date +%s)
+  link_peer
+  echo
+  echo ">>> Menunggu perangkat menyambung ke laptop. Lihat layar perangkat. Ctrl+C untuk berhenti."
+  ev STATE waiting
+  # Tunggu server Miracast selesai, sambil memantau grup P2P. Sebelumnya script hanya menunggu server,
+  # jadi kalau perangkat keluar dari grup (mis. GROUP-FORMATION-FAILURE setelah WPS) script menunggu selamanya.
+  SINK=0; DOWN=0
+  while kill -0 "$PYPID" 2>/dev/null; do
+    sink_seen && SINK=1
+    if gif_alive; then DOWN=0; else DOWN=$((DOWN + 1)); fi
+    [ "$DOWN" -ge 2 ] && break      # 2 kali berturut-turut (2 detik): bukan sekadar kedip
+    sleep 1 & wait $!               # 'wait' supaya Ctrl+C / stop dari GUI langsung diproses
+  done
+  kill -0 "$PYPID" 2>/dev/null || break
+
+  REASON=$(journalctl -u wpa_supplicant --since "@$TL" -o cat --no-pager 2>/dev/null \
+           | grep -oE "P2P-GROUP-REMOVED $GIF [A-Za-z]+ reason=[A-Z_]+" | tail -1 | sed 's/.*reason=//')
+  case "$REASON" in
+    FORMATION_FAILED) WHY="perangkat keluar sebelum koneksi WiFi selesai (FORMATION_FAILED)" ;;
+    GO_ENDING_SESSION) WHY="perangkat menutup grup Wi-Fi Direct (GO_ENDING_SESSION)" ;;
+    "") WHY="interface $GIF hilang" ;;
+    *) WHY="grup dihapus wpa_supplicant ($REASON)" ;;
+  esac
+  [ -n "$DHPID" ] && stop_group "$DHPID"; DHPID=""
+  [ -n "$TAILPID" ] && stop_group "$TAILPID"; TAILPID=""
+  W p2p_group_remove "$GIF" >/dev/null 2>&1
+  W p2p_cancel >/dev/null 2>&1
+
+  if [ "$SINK" = 1 ]; then
+    # Sempat streaming: jangan sambung ulang diam-diam, laporkan dan berhenti
+    MSG="Koneksi Wi-Fi Direct ke $PEER_NAME putus: $WHY"
+    echo "$MSG"; ev ERROR "$MSG"
+    exit 1
+  fi
+  if [ "$RELINK" -ge "$MAX_RELINK" ]; then
+    MSG="Gagal tersambung: $WHY, sudah dicoba $((MAX_RELINK + 1)) kali"
+    echo "$MSG"
+    echo "   Kalau sering terjadi: putuskan WiFi kantor sementara (radio WiFi harus bergantian channel), lalu coba lagi."
+    ev ERROR "$MSG"
+    exit 1
+  fi
+  RELINK=$((RELINK + 1))
+  GIF=""
+  ev STATE connecting "$PEER_NAME" "$HOW"   # sebelum baris teks: GUI menampilkan pesan "menyambung ulang"
+  echo
+  echo "Wi-Fi Direct terputus sebelum perangkat tersambung: $WHY. Menyambung ulang ($RELINK/$MAX_RELINK)..."
+  sleep 2
+done
 echo "Server Miracast berhenti."
