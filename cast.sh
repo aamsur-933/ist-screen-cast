@@ -25,19 +25,23 @@ WIFI=""; CHECK_ONLY=0; GUI=0
 PY_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --peer)      PEER="${2:-}"; shift 2 ;;
+    --peer)      PEER="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     --peer=*)    PEER="${1#--peer=}"; shift ;;
     --join)      CONNECT_MODE="join"; shift ;;
     --negotiate) CONNECT_MODE="negotiate"; shift ;;
-    --go-intent) GO_INTENT="${2:-14}"; shift 2 ;;
+    --go-intent) GO_INTENT="${2:-14}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     --mirror)    DISPLAY_MODE="mirror"; shift ;;
     --extend|--virtual) DISPLAY_MODE="extend"; shift ;;
-    --iface)     WIFI="${2:-}"; shift 2 ;;
+    --iface)     WIFI="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     --check)     CHECK_ONLY=1; shift ;;
     --gui)       GUI=1; shift ;;
     *)           PY_ARGS+=("$1"); shift ;;
   esac
 done
+# Paket .deb memasang aturan polkit: user yang login di depan laptop boleh menjalankan script ini
+# sebagai root tanpa password. Karena itu argumen yang dipakai sebagai root dicek ketat.
+[[ "$GO_INTENT" =~ ^([0-9]|1[0-5])$ ]] || { echo "--go-intent harus 0..15"; exit 1; }
+[ -z "$WIFI" ] || [[ "$WIFI" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || { echo "--iface tidak valid: $WIFI"; exit 1; }
 DIR="$(cd "$(dirname "$0")" && pwd)"
 U="${SUDO_USER:-}"
 # Dijalankan lewat pkexec (GUI): pengguna desktop dari PKEXEC_UID

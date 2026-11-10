@@ -25,13 +25,19 @@ struct Helper {
 
 type Shared = Arc<Mutex<Helper>>;
 
+const INSTALLED_DIR: &str = "/usr/lib/ist-screen-cast";
+
 /// Folder berisi cast.sh, wfd_source.py, gcast.py, ...
-/// IST_SCREENCAST_DIR -> /usr/lib/ist-screen-cast (paket .deb) -> repo (saat pengembangan)
+/// IST_SCREENCAST_DIR -> repo (build debug / `npm run dev`) -> /usr/lib/ist-screen-cast (paket .deb)
 fn script_dir() -> PathBuf {
     if let Ok(d) = std::env::var("IST_SCREENCAST_DIR") {
         return PathBuf::from(d);
     }
-    let sys = PathBuf::from("/usr/lib/ist-screen-cast");
+    if cfg!(debug_assertions) {
+        // saat pengembangan selalu pakai script di repo, walaupun paket .deb juga terpasang
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    }
+    let sys = PathBuf::from(INSTALLED_DIR);
     if sys.join("cast.sh").exists() {
         return sys;
     }
@@ -79,7 +85,15 @@ fn start_session(app: AppHandle, state: State<'_, Shared>, opts: StartOpts) -> R
         return Err(format!("{} tidak ada", script.display()));
     }
     let mut cmd = Command::new("pkexec");
-    cmd.arg("/bin/bash").arg(&script).arg("--gui");
+    if dir == std::path::Path::new(INSTALLED_DIR) {
+        // Paket .deb: aturan polkit app.ist.screencast.cast cocok dengan path program ini,
+        // jadi user yang login di depan laptop tidak ditanya password.
+        cmd.arg(&script);
+    } else {
+        // Pengembangan: tidak ada aturan polkit, pkexec meminta password administrator.
+        cmd.arg("/bin/bash").arg(&script);
+    }
+    cmd.arg("--gui");
     if let Some(i) = opts.iface.filter(|s| !s.is_empty()) {
         if !valid_iface(&i) {
             return Err(format!("nama interface tidak valid: {i}"));

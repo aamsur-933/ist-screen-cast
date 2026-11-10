@@ -91,8 +91,8 @@ function renderDevices() {
   if (S.devices.length === 0) {
     const p = document.createElement("p"); p.className = "empty";
     p.textContent = {
-      idle: "Tekan Pindai untuk mencari projektor/TV. Laptop akan meminta password administrator sekali per sesi.",
-      starting: "Menunggu izin administrator…",
+      idle: "Tekan Pindai untuk mencari projektor/TV.",
+      starting: "Meminta izin sistem…",
       checking: "Memeriksa kesiapan laptop…",
       scanning: "Memindai Miracast (Wi-Fi Direct) dan Google Cast (WiFi)…",
     }[S.phase] || "Tidak ada perangkat. Pastikan projektor di mode Screen Mirroring, TV menyala, atau TV Google Cast di WiFi yang sama, lalu Pindai lagi.";
@@ -174,8 +174,8 @@ async function onScan() {
   S.devices = []; S.pending = []; S.checkErrors = []; S.lastError = ""; S.streaming = false;
   stats.clear(); setStats([]); S.log = []; $("log").textContent = "";
   setPhase("starting");
-  setPill("Menunggu izin", "busy");
-  setStatus("Menunggu izin administrator", "Masukkan password di dialog sistem yang muncul.");
+  setPill("Memulai", "busy");
+  setStatus("Meminta izin sistem…", "Kalau muncul dialog password, masukkan password administrator.");
   try {
     const dir = await invoke("start_session", { opts: { iface: f.iface || null, capture: f.capture } });
     appendLog(`[GUI] folder script: ${dir}`);

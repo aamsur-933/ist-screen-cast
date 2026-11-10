@@ -46,7 +46,7 @@ aplikasi itu memakai Wi-Fi Direct yang sama.
 
 ### Aplikasi IST Screen Cast (GUI)
 
-1. Buka aplikasi, tekan **Pindai**, lalu masukkan password administrator di dialog sistem.
+1. Buka aplikasi, lalu tekan **Pindai**. Kalau aplikasi dipasang dari `.deb`, password tidak diminta.
 2. Pilih perangkat. Miracast dan Google Cast tampil dalam satu daftar.
 3. Pilih **Mirror** atau **Extend**, dan resolusi.
 4. Tekan **Cast**. Kalau TV meminta persetujuan, setujui dengan remote.
@@ -64,9 +64,16 @@ Opsi **Advanced** sama dengan opsi terminal:
 | Encoder hardware | `--hw` | saat Cast (Miracast) |
 | Bitrate | `--bitrate` (kbit/s) | saat Cast (Miracast dan Google Cast) |
 
-Untuk menjalankan aplikasi dari kode sumber (butuh Rust, Node.js, dan `libwebkit2gtk-4.1-dev`):
+**Instalasi:** unduh `ist-screen-cast_<versi>_amd64.deb` dari halaman Releases di GitHub, lalu:
 
-    cd gui && npm install && npm run dev
+    sudo apt install ./ist-screen-cast_<versi>_amd64.deb
+
+`apt` otomatis memasang semua dependensi. Script ikut terpasang di `/usr/lib/ist-screen-cast/`,
+dan aplikasi muncul di menu dengan nama **IST Screen Cast**. Paket di-build di Ubuntu 22.04,
+jadi jalan di Ubuntu 22.04 ke atas dan turunannya (Mint 21+, Pop!_OS 22.04+, elementary OS 7+).
+
+Untuk menjalankan atau mem-build dari kode sumber, lihat
+[Build dan menjalankan dari source](#build-dan-menjalankan-dari-source).
 
 ### Terminal: Miracast
 
@@ -131,6 +138,94 @@ Pengujian dilakukan di laptop Ubuntu 22.04 (GNOME Wayland, NetworkManager 1.36, 
 
 Yang belum pernah diuji: distro/versi lain, chip WiFi non-Intel, encoder hardware, dan
 desktop selain GNOME. Hasil dari laptop lain sangat membantu, termasuk output `--check`.
+
+## Build dan menjalankan dari source
+
+    git clone https://github.com/aamsur-933/ist-screen-cast.git
+    cd ist-screen-cast
+
+### Script (terminal): tanpa build
+
+`cast.sh`, `gcast.sh`, dan file Python dijalankan langsung dari folder repo. Cukup pasang paket
+di [Kebutuhan](#kebutuhan), lalu:
+
+    sudo bash cast.sh --check     # cek kesiapan laptop
+    sudo bash cast.sh             # Miracast
+    sudo bash gcast.sh            # Google Cast
+
+Perubahan pada script langsung berlaku di percobaan berikutnya.
+
+### Aplikasi GUI: kebutuhan build
+
+Selain paket di [Kebutuhan](#kebutuhan), siapkan:
+
+- **Rust** (stable) lewat [rustup](https://rustup.rs);
+- **Node.js 20+** dan npm;
+- library pengembangan WebKitGTK:
+
+      sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev build-essential
+
+`libwebkit2gtk-4.1-dev` tersedia mulai Ubuntu 22.04 / Debian 12.
+
+### Aplikasi GUI: menjalankan dari source
+
+    cd gui
+    npm ci          # sekali saja (memasang Tauri CLI di gui/node_modules)
+    npm run dev     # compile lalu buka jendela IST Screen Cast
+
+Compile pertama kali butuh sekitar 1–2 menit; berikutnya hanya beberapa detik. Di mode ini:
+
+- GUI memakai script di **folder repo**, bukan `/usr/lib/ist-screen-cast/`, walaupun paket
+  `.deb` juga terpasang. Perubahan pada `cast.sh` dan file Python berlaku di Pindai berikutnya.
+- **Password tetap diminta** setiap Pindai, karena aturan polkit hanya berlaku untuk script
+  yang dipasang dari paket.
+- Perubahan di `gui/src-tauri/` otomatis di-compile ulang. Setelah mengubah `gui/ui/`, jalankan
+  ulang `npm run dev`.
+- Folder script lain bisa dipilih dengan variabel `IST_SCREENCAST_DIR=/path/ke/folder`.
+
+### Aplikasi GUI: build paket `.deb` sendiri
+
+    cd gui
+    npm ci
+    npx tauri build --bundles deb --config '{"version":"0.2.0"}'
+
+Tanpa `--config`, versi diambil dari `gui/src-tauri/tauri.conf.json`. Build release butuh
+beberapa menit, dan folder `gui/src-tauri/target/` bisa mencapai 2 GB. Hasilnya ada di
+`gui/src-tauri/target/release/bundle/deb/`. Perhatikan bahwa nama file-nya mengandung spasi:
+
+    sudo apt install "./src-tauri/target/release/bundle/deb/IST Screen Cast_0.2.0_amd64.deb"
+
+Isi paket:
+
+- aplikasi di `/usr/bin/ist-screen-cast`;
+- script di `/usr/lib/ist-screen-cast/`;
+- aturan polkit di `/usr/share/polkit-1/actions/`;
+- ikon dan entri menu.
+
+Cek isinya dengan `dpkg-deb --contents <file.deb>`.
+
+### Uji tanpa projektor/TV
+
+Server Miracast bisa diuji dengan projektor tiruan. Jalankan sebagai user biasa, tanpa sudo,
+di dua terminal:
+
+    python3 wfd_source.py --port 17236 --once    # terminal 1: server Miracast (tangkapan layar asli)
+    python3 fake_sink.py 17236                   # terminal 2: tiruan projektor, melaporkan RTP yang diterima
+
+Hasil yang benar: `SINK: received ... RTP bytes ... -> OK`. Untuk cek kesiapan tanpa root,
+jalankan `python3 wfd_source.py --check`.
+
+### Membuat rilis
+
+Buat Release di GitHub dengan tag semver, misalnya `v0.2.0` atau `v0.2.0-beta.1`, lalu Publish.
+Workflow `.github/workflows/release-deb.yml` akan:
+
+1. mem-build `.deb` di Ubuntu 22.04 dengan versi dari tag;
+2. mengecek isinya;
+3. melampirkan `ist-screen-cast_<versi>_amd64.deb` ke Release itu (sekitar 10 menit).
+
+Build juga bisa dijalankan manual dari tab **Actions → Release .deb → Run workflow**. Hasil
+run manual tersimpan sebagai artifact, tidak ditempel ke Release.
 
 ## Detail teknis
 
@@ -217,8 +312,26 @@ layar (VP8 + Opus, WebM) yang di-stream dari laptop. Detail protokol ada di `doc
 
 ### Aplikasi GUI
 
-GUI (Tauri v2) berjalan sebagai user biasa. Saat **Pindai**, GUI menjalankan
-`pkexec /bin/bash cast.sh --gui`, jadi password administrator diminta sekali per sesi.
+GUI (Tauri v2) berjalan sebagai user biasa. Saat **Pindai**, GUI menjalankan `cast.sh --gui`
+sebagai root lewat `pkexec`:
+
+| Dipasang dari | Perintah | Password |
+|---|---|---|
+| paket `.deb` | `pkexec /usr/lib/ist-screen-cast/cast.sh --gui` | **tidak diminta** untuk user yang login di depan laptop |
+| repo (`npm run dev`) | `pkexec /bin/bash <repo>/cast.sh --gui` | diminta setiap sesi |
+
+Paket `.deb` memasang aturan polkit `/usr/share/polkit-1/actions/app.ist.screencast.policy`
+(sumbernya `packaging/app.ist.screencast.policy`). Aturan itu berlaku hanya untuk program
+`/usr/lib/ist-screen-cast/cast.sh`, dengan:
+
+- `allow_active=yes`: sesi lokal yang aktif tidak ditanya password, sama seperti NetworkManager
+  mengizinkan user mengatur WiFi.
+- Sesi lain (SSH, sesi tidak aktif) tetap harus memasukkan password administrator.
+
+Konsekuensinya, siapa pun yang login di laptop itu bisa menjalankan `cast.sh` sebagai root.
+Karena itu argumen yang dipakai sebagai root dicek ketat: `--iface` harus nama interface yang
+valid, `--go-intent` harus 0–15, dan perintah GUI hanya menerima nilai dari daftar yang
+diizinkan. Script itu sendiri milik root di `/usr/lib`, jadi user tidak bisa mengubah isinya.
 
 Di mode `--gui`, `cast.sh`:
 
@@ -240,6 +353,8 @@ Perubahan yang **menetap**:
   mengulang dari negosiasi biasa.
 - `~/.local/state/miracast-cast/portal-*.token`: persetujuan dialog portal. File ini hanya ada
   kalau xdg-desktop-portal dipakai.
+- Paket `.deb`: aplikasi, script di `/usr/lib/ist-screen-cast/`, dan aturan polkit. Hapus dengan
+  `sudo apt remove ist-screen-cast`.
 
 Perubahan **sementara**, otomatis dihapus saat berhenti:
 

@@ -1,0 +1,93 @@
+# Build paket .deb IST Screen Cast setiap kali GitHub Release dipublish, lalu lampirkan ke Release itu.
+# Tag release = versi paket: v1.2.0 -> ist-screen-cast_1.2.0_amd64.deb (harus semver: 1.2.0, 1.2.0-beta.1).
+# Bisa juga dijalankan manual (tab Actions -> Run workflow): hasilnya jadi artifact, tidak ke Release.
+name: Release .deb
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # untuk melampirkan .deb ke Release
+
+jobs:
+  deb:
+    # Build di Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1): paket jalan di 22.04 dan yang lebih baru
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependensi build Tauri
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf build-essential
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri -> target
+
+      - name: Versi dari tag release
+        id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "${{ github.event_name }}" = release ]; then
+            VER="${TAG#v}"
+            if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Tag '$TAG' bukan semver (contoh: v1.2.0 atau v1.2.0-beta.1)"; exit 1
+            fi
+          else
+            VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Versi paket: $VER"
+
+      - run: npm ci
+
+      - name: Build .deb
+        run: npx tauri build --bundles deb --config "{\"version\":\"${{ steps.ver.outputs.version }}\"}"
+
+      - name: Beri nama file tanpa spasi
+        run: |
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/deb/*.deb "dist/ist-screen-cast_${{ steps.ver.outputs.version }}_amd64.deb"
+          ls -l dist
+
+      - name: Cek isi paket
+        run: |
+          DEB=$(ls dist/*.deb)
+          dpkg-deb --info "$DEB"
+          dpkg-deb --contents "$DEB"
+          for f in usr/bin/ist-screen-cast usr/lib/ist-screen-cast/cast.sh usr/lib/ist-screen-cast/wfd_source.py \
+                   usr/lib/ist-screen-cast/gcast.py usr/lib/ist-screen-cast/dhcp-hook.sh \
+                   usr/share/polkit-1/actions/app.ist.screencast.policy; do
+            dpkg-deb --contents "$DEB" | grep -qE " (\./)?$f$" || { echo "::error::$f tidak ada di paket"; exit 1; }
+          done
+
+      - name: Lampirkan ke Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/*.deb --clobber
+
+      - name: Simpan sebagai artifact (run manual)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ist-screen-cast-deb
+          path: gui/dist/*.deb

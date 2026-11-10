@@ -24,7 +24,54 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+    "targets": [
+      "deb"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "category": "Utility",
+    "shortDescription": "Cast layar laptop ke projektor/TV (Miracast, Google Cast)",
+    "longDescription": "IST Screen Cast menampilkan layar laptop Linux di projektor dan TV lewat Miracast (Wi-Fi Direct) atau Google Cast, dengan mode Mirror atau Extend.",
+    "linux": {
+      "deb": {
+        "section": "net",
+        "files": {
+          "/usr/lib/ist-screen-cast/cast.sh": "../../cast.sh",
+          "/usr/lib/ist-screen-cast/wfd_source.py": "../../wfd_source.py",
+          "/usr/lib/ist-screen-cast/gcast.py": "../../gcast.py",
+          "/usr/lib/ist-screen-cast/gcast.sh": "../../gcast.sh",
+          "/usr/lib/ist-screen-cast/dhcp-hook.sh": "../../dhcp-hook.sh",
+          "/usr/share/polkit-1/actions/app.ist.screencast.policy": "../../packaging/app.ist.screencast.policy"
+        },
+        "depends": [
+          "wpasupplicant",
+          "network-manager",
+          "iptables",
+          "busybox",
+          "iproute2",
+          "pulseaudio-utils",
+          "pkexec | policykit-1",
+          "python3",
+          "python3-gi",
+          "gir1.2-gstreamer-1.0",
+          "gir1.2-gst-plugins-base-1.0",
+          "gstreamer1.0-pipewire",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-pulseaudio"
+        ],
+        "recommends": [
+          "avahi-utils",
+          "xdg-desktop-portal",
+          "iw"
+        ]
+      }
+    },
+    "publisher": "IST"
   }
 }

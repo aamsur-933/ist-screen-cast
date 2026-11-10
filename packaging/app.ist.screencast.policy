@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Dipasang oleh paket ist-screen-cast di /usr/share/polkit-1/actions/.
+     User yang sedang login di depan laptop (sesi lokal aktif) boleh menjalankan cast.sh sebagai root
+     tanpa password, seperti NetworkManager mengizinkan user mengatur WiFi. Sesi lain (SSH, sesi tidak
+     aktif) tetap harus memasukkan password administrator. -->
+<policyconfig>
+  <vendor>IST</vendor>
+  <action id="app.ist.screencast.cast">
+    <description>Cast layar ke projektor/TV (IST Screen Cast)</description>
+    <description xml:lang="id">Cast layar ke projektor/TV (IST Screen Cast)</description>
+    <message>IST Screen Cast needs to configure Wi-Fi Direct and the firewall temporarily</message>
+    <message xml:lang="id">IST Screen Cast perlu mengatur Wi-Fi Direct dan firewall untuk sementara</message>
+    <icon_name>ist-screen-cast</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/ist-screen-cast/cast.sh</annotate>
+  </action>
+</policyconfig>
